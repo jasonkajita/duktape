@@ -840,6 +840,9 @@ Planned
   'return 0, (function { return 1; })(), 2;' would return 1 instead
   of 2 (GH-131)
 
+* Fix shuffle handling issue for PUTPROP opcode, discovered by shuffle
+  torture tests (GH-135)
+
 * Add support for TI-Nspire (using Ndless, see GH-113)
 
 2.0.0 (XXXX-XX-XX)
