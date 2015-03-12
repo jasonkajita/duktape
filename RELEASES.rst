@@ -810,6 +810,9 @@ Planned
 * Accept 32-bit codepoints in String.fromCharCode() to better support non-BMP
   strings (GH-120)
 
+* Improve MIPS32/MIPS64 detection, architecture strings in Duktape.env
+  also updated ("mips32" or "mips64") (GH-102)
+
 * Fix Unicode handling of CJK ideographs and Hangul which were incorrectly
   not accepted in identifier names (see GH-103)
 
