@@ -82,11 +82,11 @@ var ERR_TOOMANY = 0x02;
 var ERR_NOTFOUND = 0x03;
 
 // Marker objects for special protocol values
-var DVAL_EOM = { EOM: true };
-var DVAL_REQ = { REQ: true };
-var DVAL_REP = { REP: true };
-var DVAL_ERR = { ERR: true };
-var DVAL_NFY = { NFY: true };
+var DVAL_EOM = { type: 'eom' };
+var DVAL_REQ = { type: 'req' };
+var DVAL_REP = { type: 'rep' };
+var DVAL_ERR = { type: 'err' };
+var DVAL_NFY = { type: 'nfy' };
 
 // String map for commands (debug dumping).  A single map works (instead of
 // separate maps for each direction) because command numbers don't currently
@@ -167,11 +167,19 @@ function stringToDebugString(str) {
 
 /* Pretty print a dvalue.  Useful for dumping etc. */
 function prettyDebugValue(x) {
-    if (x === DVAL_EOM) { return 'EOM'; }
-    if (x === DVAL_REQ) { return 'REQ'; }
-    if (x === DVAL_REP) { return 'REP'; }
-    if (x === DVAL_ERR) { return 'ERR'; }
-    if (x === DVAL_NFY) { return 'NFY'; }
+    if (typeof x === 'object' && x !== null) {
+        if (x.type === 'eom') {
+            return 'EOM';
+        } else if (x.type === 'req') {
+            return 'REQ';
+        } else if (x.type === 'rep') {
+            return 'REP';
+        } else if (x.type === 'err') {
+            return 'ERR';
+        } else if (x.type === 'nfy') {
+            return 'NFY';
+        }
+    }
     return JSON.stringify(x);
 }
 
@@ -261,50 +269,49 @@ function prettyUiStringUnquoted(x, cliplen) {
  * so that styling etc. could take typing into account.
  */
 function prettyUiDebugValue(x, cliplen) {
-    var t;
-
-    if (x === DVAL_EOM) { return 'EOM'; }
-    if (x === DVAL_REQ) { return 'REQ'; }
-    if (x === DVAL_REP) { return 'REP'; }
-    if (x === DVAL_ERR) { return 'ERR'; }
-    if (x === DVAL_NFY) { return 'NFY'; }
-    if (x === undefined) { return 'undefined'; }
-    if (x === null) { return 'null'; }
-    if (typeof x === 'boolean') {
+    if (typeof x === 'object' && x !== null) {
+        // Note: typeof null === 'object', so null special case explicitly
+        if (x.type === 'eom') {
+            return 'EOM';
+        } else if (x.type === 'req') {
+            return 'REQ';
+        } else if (x.type === 'rep') {
+            return 'REP';
+        } else if (x.type === 'err') {
+            return 'ERR';
+        } else if (x.type === 'nfy') {
+            return 'NFY';
+        } else if (x.type === 'unused') {
+            return 'unused';
+        } else if (x.type === 'undefined') {
+            return 'undefined';
+        } else if (x.type === 'buffer') {
+            return '|' + x.data + '|';
+        } else if (x.type === 'object') {
+            return '[object ' + (dukClassNames[x.class] || ('class ' + x.class)) + ' ' + x.data + ']';
+        } else if (x.type === 'pointer') {
+            return '<pointer ' + x.pointer + '>';
+        } else if (x.type === 'lightfunc') {
+            return '<lightfunc 0x' + x.flags.toString(16) + ' ' + x.pointer + '>';
+        } else if (x.type === 'number') {
+            // duk_tval number, any IEEE double
+            var tmp = new Buffer(x.data, 'hex');  // decode into hex
+            var val = tmp.readDoubleBE(0);        // big endian ieee double
+            return prettyUiNumber(val);
+        }
+    } else if (x === null) {
+        return 'null';
+    } else if (typeof x === 'boolean') {
         return x ? 'true' : 'false';
-    }
-    if (typeof x === 'string') {
+    } else if (typeof x === 'string') {
         return prettyUiString(x, cliplen);
-    }
-    if (typeof x === 'number') {
+    } else if (typeof x === 'number') {
         // Debug protocol integer
         return prettyUiNumber(x);
     }
-    if (typeof x === 'object' && x !== null) {
-        // Note: typeof null === 'object', so null special case explicitly
-        if (typeof x.UNUSED !== 'undefined') {
-            return 'unused';
-        }
-        if (typeof x.BUF !== 'undefined') {
-            return '|' + x.BUF + '|';
-        }
-        if (typeof x.OBJ !== 'undefined') {
-            return '[object ' + (dukClassNames[x.class] || ('class ' + x.class)) + ']';
-        }
-        if (typeof x.PTR !== 'undefined') {
-            return '<pointer ' + x.PTR + '>';
-        }
-        if (typeof x.LFUNC !== 'undefined') {
-            return '<lightfunc 0x' + x.flags.toString(16) + ' ' + x.LFUNC + '>';
-        }
-        if (typeof x.NUM !== 'undefined') {
-            // duk_tval number, any IEEE double
-            return prettyUiNumber(x.value);
-        }
-    }
 
     // We shouldn't come here, but if we do, JSON is a reasonable default.
-    return JSON.stringify(t);
+    return JSON.stringify(x);
 }
 
 /* Pretty print a debugger message given as an array of parsed dvalues.
@@ -512,6 +519,7 @@ function DebugProtocolParser(inputStream,
     this.prevBytes = 0;
     this.bytesPerSec = 0;
     this.statsTimer = null;
+    this.readableNumberValue = true;
 
     events.EventEmitter.call(this);
 
@@ -654,7 +662,7 @@ function DebugProtocolParser(inputStream,
                         if (buf.length >= 5 + len) {
                             v = new Buffer(len);
                             buf.copy(v, 0, 5, 5 + len);
-                            v = { BUF: v.toString('hex') };
+                            v = { type: 'buffer', data: v.toString('hex') };
                             consume(5 + len);
                             // Value could be a Node.js buffer directly, but
                             // we prefer all dvalues to be JSON compatible
@@ -667,7 +675,7 @@ function DebugProtocolParser(inputStream,
                         if (buf.length >= 3 + len) {
                             v = new Buffer(len);
                             buf.copy(v, 0, 3, 3 + len);
-                            v = { BUF: v.toString('hex') };
+                            v = { type: 'buffer', data: v.toString('hex') };
                             consume(3 + len);
                             // Value could be a Node.js buffer directly, but
                             // we prefer all dvalues to be JSON compatible
@@ -675,11 +683,11 @@ function DebugProtocolParser(inputStream,
                     }
                     break;
                 case 0x15:  // unused/none
-                    v = { UNUSED: true };
+                    v = { type: 'unused' };
                     consume(1);
                     break;
                 case 0x16:  // undefined
-                    v = undefined;
+                    v = { type: 'undefined' };
                     gotValue = true;  // indicate 'v' is actually set
                     consume(1);
                     break;
@@ -700,7 +708,13 @@ function DebugProtocolParser(inputStream,
                     if (buf.length >= 9) {
                         v = new Buffer(8);
                         buf.copy(v, 0, 1, 9);
-                        v = { NUM: v.toString('hex'), value: v.readDoubleBE(0) };
+                        v = { type: 'number', data: v.toString('hex') }
+
+                        if (_this.readableNumberValue) {
+                            // The _value key should not be used programmatically,
+                            // it is just there to make the dumps more readable.
+                            v._value = buf.readDoubleBE(1);
+                        }
                         consume(9);
                     }
                     break;
@@ -710,7 +724,7 @@ function DebugProtocolParser(inputStream,
                         if (buf.length >= 3 + len) {
                             v = new Buffer(len);
                             buf.copy(v, 0, 3, 3 + len);
-                            v = { OBJ: v.toString('hex'), class: buf[1] };
+                            v = { type: 'object', 'class': buf[1], pointer: v.toString('hex') };
                             consume(3 + len);
                         }
                     }
@@ -721,7 +735,7 @@ function DebugProtocolParser(inputStream,
                         if (buf.length >= 2 + len) {
                             v = new Buffer(len);
                             buf.copy(v, 0, 2, 2 + len);
-                            v = { PTR: v.toString('hex') };
+                            v = { type: 'pointer', pointer: v.toString('hex') };
                             consume(2 + len);
                         }
                     }
@@ -732,7 +746,7 @@ function DebugProtocolParser(inputStream,
                         if (buf.length >= 4 + len) {
                             v = new Buffer(len);
                             buf.copy(v, 0, 4, 4 + len);
-                            v = { LFUNC: v.toString('hex'), flags: buf.readUInt16BE(1) };
+                            v = { type: 'lightfunc', flags: buf.readUInt16BE(1), pointer: v.toString('hex') };
                             consume(4 + len);
                         }
                     }
@@ -743,7 +757,7 @@ function DebugProtocolParser(inputStream,
                         if (buf.length >= 2 + len) {
                             v = new Buffer(len);
                             buf.copy(v, 0, 2, 2 + len);
-                            v = { HEAPPTR: v.toString('hex') };
+                            v = { type: 'heapptr', pointer: v.toString('hex') };
                             consume(2 + len);
                         }
                     }
@@ -819,20 +833,94 @@ DebugProtocolParser.prototype.close = function () {
  */
 
 function formatDebugValue(v) {
-    var buf;
+    var buf, dec, len;
 
     // See doc/debugger.rst for format description.
 
-    if (v === DVAL_EOM) {
-        return new Buffer([ 0x00 ]);
-    } else if (v === DVAL_REQ) {
-        return new Buffer([ 0x01 ]);
-    } else if (v === DVAL_REP) {
-        return new Buffer([ 0x02 ]);
-    } else if (v === DVAL_ERR) {
-        return new Buffer([ 0x03 ]);
-    } else if (v === DVAL_NFY) {
-        return new Buffer([ 0x04 ]);
+    if (typeof v === 'object' && v !== null) {
+        // Note: typeof null === 'object', so null special case explicitly
+        if (v.type === 'eom') {
+            return new Buffer([ 0x00 ]);
+        } else if (v.type === 'req') {
+            return new Buffer([ 0x01 ]);
+        } else if (v.type === 'rep') {
+            return new Buffer([ 0x02 ]);
+        } else if (v.type === 'err') {
+            return new Buffer([ 0x03 ]);
+        } else if (v.type === 'nfy') {
+            return new Buffer([ 0x04 ]);
+        } else if (v.type === 'unused') {
+            return new Buffer([ 0x15 ]);
+        } else if (v.type === 'undefined') {
+            return new Buffer([ 0x16 ]);
+        } else if (v.type === 'number') {
+            dec = new Buffer(v.data, 'hex');
+            len = dec.length;
+            if (len !== 8) {
+                throw new TypeError('value cannot be converted to dvalue: ' + JSON.stringify(v));
+            }
+            buf = new Buffer(1 + len);
+            buf[0] = 0x1a;
+            dec.copy(buf, 1);
+            return buf;
+        } else if (v.type === 'buffer') {
+            dec = new Buffer(v.data, 'hex');
+            len = dec.length;
+            if (len <= 0xffff) {
+                buf = new Buffer(3 + len);
+                buf[0] = 0x14;
+                buf[1] = (len >> 8) & 0xff;
+                buf[2] = (len >> 0) & 0xff;
+                dec.copy(buf, 3);
+                return buf;
+            } else {
+                buf = new Buffer(5 + len);
+                buf[0] = 0x13;
+                buf[1] = (len >> 24) & 0xff;
+                buf[2] = (len >> 16) & 0xff;
+                buf[3] = (len >> 8) & 0xff;
+                buf[4] = (len >> 0) & 0xff;
+                dec.copy(buf, 5);
+                return buf;
+            }
+        } else if (v.type === 'object') {
+            dec = new Buffer(v.pointer, 'hex');
+            len = dec.length;
+            buf = new Buffer(3 + len);
+            buf[0] = 0x1b;
+            buf[1] = v.class;
+            buf[2] = len;
+            dec.copy(buf, 3);
+            return buf;
+        } else if (v.type === 'pointer') {
+            dec = new Buffer(v.pointer, 'hex');
+            len = dec.length;
+            buf = new Buffer(2 + len);
+            buf[0] = 0x1c;
+            buf[1] = len;
+            dec.copy(buf, 2);
+            return buf;
+        } else if (v.type === 'lightfunc') {
+            dec = new Buffer(v.pointer, 'hex');
+            len = dec.length;
+            buf = new Buffer(4 + len);
+            buf[0] = 0x1d;
+            buf[1] = (v.flags >> 8) & 0xff;
+            buf[2] = v.flags & 0xff;
+            buf[3] = len;
+            dec.copy(buf, 4);
+            return buf;
+        } else if (v.type === 'heapptr') {
+            dec = new Buffer(v.pointer, 'hex');
+            len = dec.length;
+            buf = new Buffer(2 + len);
+            buf[0] = 0x1e;
+            buf[1] = len;
+            dec.copy(buf, 2);
+            return buf;
+        }
+    } else if (v === null) {
+        return new Buffer([ 0x17 ]);
     } else if (typeof v === 'boolean') {
         return new Buffer([ v ? 0x18 : 0x19 ]);
     } else if (typeof v === 'number') {
@@ -891,10 +979,8 @@ function formatDebugValue(v) {
         }
     }
 
-    // XXX: missing support for various types (pointer, object, lightfunc, buffer)
-    // as they're not needed right now.
-
-    throw new TypeError('value cannot be converted to dvalue: ' + v);
+    // Shouldn't come here.
+    throw new TypeError('value cannot be converted to dvalue: ' + JSON.stringify(v));
 }
 
 /*
@@ -1347,10 +1433,10 @@ Debugger.prototype.sendGetBytecodeRequest = function () {
         preformatted = preformatted.join('\n') + '\n';
 
         ret = {
-            "constants": consts,
-            "functions": funcs,
-            "bytecode": bcode,
-            "preformatted": preformatted
+            constants: consts,
+            functions: funcs,
+            bytecode: bcode,
+            preformatted: preformatted
         };
 
         return ret;
@@ -2127,41 +2213,49 @@ DebugProxy.prototype.run = function () {
         _this.socket = socket;
 
         socketByline.on('data', function (line) {
-            // console.log('Received json proxy input line: ' + line.toString('utf8'));
-            var msg = JSON.parse(line.toString('utf8'));
-            var first_dval;
-            var args_dvalues = _this.formatDvalues(msg.args);
-            var last_dval = _this.dval_eom;
-            var cmd;
+            try {
+                // console.log('Received json proxy input line: ' + line.toString('utf8'));
+                var msg = JSON.parse(line.toString('utf8'));
+                var first_dval;
+                var args_dvalues = _this.formatDvalues(msg.args);
+                var last_dval = _this.dval_eom;
+                var cmd;
 
-            if (msg.request) {
-                // "request" can be a string or "true"
-                first_dval = _this.dval_req;
-                cmd = _this.determineCommandNumber(msg.request, msg.command);
-            } else if (msg.reply) {
-                first_dval = _this.dval_rep;
-            } else if (msg.notify) {
-                // "notify" can be a string or "true"
-                first_dval = _this.dval_nfy;
-                cmd = _this.determineCommandNumber(msg.notify, msg.command);
-            } else if (msg.error) {
-                first_dval = _this.dval_err;
-            } else {
+                if (msg.request) {
+                    // "request" can be a string or "true"
+                    first_dval = _this.dval_req;
+                    cmd = _this.determineCommandNumber(msg.request, msg.command);
+                } else if (msg.reply) {
+                    first_dval = _this.dval_rep;
+                } else if (msg.notify) {
+                    // "notify" can be a string or "true"
+                    first_dval = _this.dval_nfy;
+                    cmd = _this.determineCommandNumber(msg.notify, msg.command);
+                } else if (msg.error) {
+                    first_dval = _this.dval_err;
+                } else {
+                    throw new Error('Invalid input JSON message: ' + JSON.stringify(msg));
+                }
+
+                _this.targetStream.write(first_dval);
+                if (cmd) {
+                    _this.targetStream.write(formatDebugValue(cmd));
+                }
+                args_dvalues.forEach(function (v) {
+                    _this.targetStream.write(v);
+                });
+                _this.targetStream.write(last_dval);
+            } catch (e) {
+                console.log(e);
+
                 _this.writeJsonSafe({
                     notify: '_Error',
-                    args: [ 'Ignoring unknown input json message: ' + JSON.stringify(msg) ]
+                    args: [ 'Failed to handle input json message: ' + e ]
                 });
-                return;
-            }
 
-            _this.targetStream.write(first_dval);
-            if (cmd) {
-                _this.targetStream.write(formatDebugValue(cmd));
+                _this.disconnectJsonClient();
+                _this.disconnectTarget();
             }
-            args_dvalues.forEach(function (v) {
-                _this.targetStream.write(v);
-            });
-            _this.targetStream.write(last_dval);
         });
 
         _this.connectToTarget();
@@ -2186,6 +2280,9 @@ DebugProxy.prototype.connectToTarget = function () {
         null,
         null   // console logging is done at a higher level to match request/response
     );
+
+    // Don't add a '_value' key to numbers.
+    this.inputParser.readableNumberValue = false;
 
     this.inputParser.on('transport-close', function () {
         console.log('Debug transport closed');
@@ -2213,7 +2310,7 @@ DebugProxy.prototype.connectToTarget = function () {
 
         _this.writeJson({
             notify: '_Connected',
-            args: [ msg ]  // FIXME
+            args: [ msg.versionIdentification ]  // raw identification string
         });
 
         if (ver !== 1) {
@@ -2226,11 +2323,11 @@ DebugProxy.prototype.connectToTarget = function () {
 
         //console.log(msg);
 
-        if (typeof msg[0] !== 'object') {
+        if (typeof msg[0] !== 'object' || msg[0] === null) {
             throw new Error('unexpected initial dvalue: ' + msg[0]);
-        } else if (msg[0].EOM) {
+        } else if (msg.type === 'eom') {
             throw new Error('unexpected initial dvalue: ' + msg[0]);
-        } else if (msg[0].REQ) {
+        } else if (msg.type === 'req') {
             if (typeof msg[1] !== 'number') {
                 throw new Error('unexpected request command number: ' + msg[1]);
             }
@@ -2240,19 +2337,19 @@ DebugProxy.prototype.connectToTarget = function () {
                 args: msg.slice(2, msg.length - 1)
             }
             _this.writeJson(t);
-        } else if (msg[0].REP) {
+        } else if (msg[0].type === 'rep') {
             t = {
                 reply: true,
                 args: msg.slice(1, msg.length - 1)
             }
             _this.writeJson(t);
-        } else if (msg[0].ERR) {
+        } else if (msg[0].type === 'err') {
             t = {
                 error: true,
                 args: msg.slice(1, msg.length - 1)
             }
             _this.writeJson(t);
-        } else if (msg[0].NFY) {
+        } else if (msg[0].type === 'nfy') {
             if (typeof msg[1] !== 'number') {
                 throw new Error('unexpected notify command number: ' + msg[1]);
             }
