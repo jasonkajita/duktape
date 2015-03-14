@@ -667,7 +667,7 @@ some cases:
 |                       |           | length in network order and buffer    |
 |                       |           | data follows initial byte             |
 +-----------------------+-----------+---------------------------------------+
-| 0x14 <uint16> <data>  | buffer    | 2-byte string, unsigned 16-bit buffer |
+| 0x14 <uint16> <data>  | buffer    | 2-byte buffer, unsigned 16-bit buffer |
 |                       |           | length in network order and buffer    |
 |                       |           | data follows initial byte             |
 +-----------------------+-----------+---------------------------------------+
@@ -929,7 +929,8 @@ gracefully in a few common cases (but certainly not all).
 Text representation of dvalues and debug messages
 -------------------------------------------------
 
-**This is an informative convention only.**
+**This is an informative convention only used in this document and in
+duk_debug.js dumps.**
 
 The Duktape debug client uses the following convention for representing
 dvalues as text:
@@ -944,8 +945,7 @@ dvalues as text:
   of the codepoints U+0080...U+00FF which unfortunately looks funny (ASCII
   only serialization would be preferable).
 
-* Other types are JSON encoded from their internal representation, see
-  ``duk_debug.js`` for details.
+* Other types are JSON encoded like in the JSON mapping, see below.
 
 Debug messages are then simply represented as one-liners containing all the
 related dvalues (including message type marker and EOM) separate by spaces.
@@ -982,16 +982,75 @@ at all.
 JSON representation of dvalues
 ------------------------------
 
-* All integers map directly to JSON number type.
+* Unused::
+
+      { "type": "unused" }
+
+* Undefined::
+
+      { "type": "undefined" }
+
+* Null, true, and false map directly to JSON::
+
+      null
+      true
+      false
+
+* Integers map directly to JSON number type::
+
+      1234
+
+* Any numbers that can't be represented without loss as JSON numbers
+  (e.g. infinity, NaN, negative zero) are expressed as::
+
+      // data contains IEEE double in big endian hex encoded bytes
+      // (here Math.PI)
+      { "type": "number", "data": "400921fb54442d18" }
 
 * Strings are mapped like in the text representation, i.e. bytes 0x00...0xff
-  map to Unicode codepoints U+0000...U+00FF, to maintain byte exactness and
-  to represent non-UTF-8 strings correctly.
+  map to Unicode codepoints U+0000...U+00FF::
 
-* **FIXME: pointers, buffers, etc**
+      // the 4-byte string 0xde 0xad 0xbe 0xef
+      "\u00de\00ad\00be\00ef"
+
+  This representation is used because it is byte exact, represents non-UTF-8
+  strings correctly, but is still human readable for most practical (ASCII)
+  strings.
+
+* Buffer data is represented in hex encoded form wrapped in an object::
+
+      { "type": "buffer", "data": "deadbeef" }
 
 * The message framing dvalues (EOM, REQ, REP, NFY, ERR) are not visible in
-  the JSON protocol.
+  the JSON protocol.  They are used by ``duk_debug.js`` internally with the
+  format::
+
+      { "type": "eom" }
+      { "type": "req" }
+      { "type": "rep" }
+      { "type": "err" }
+      { "type": "nfy" }
+
+* Object::
+
+      // class is a number, pointer is hex-encoded
+      { "type": "object", "class": 10, "pointer": "deadbeef" }
+
+* Pointer::
+
+      // pointer is hex-encoded
+      { "type": "pointer", "pointer": "deadbeef" }
+
+* Lightfunc::
+
+      // flags is a 16-bit integer represented as a JSON number,
+      // pointer is hex-encoded
+      { "type": "lightfunc", "flags": 1234, "pointer": "deadbeef" }
+
+* Heap pointer::
+
+      // pointer is hex-encoded
+      { "type": "heapptr", "pointer": "deadbeef" }
 
 JSON representation of debug messages
 -------------------------------------
@@ -1075,12 +1134,7 @@ This line doesn't follow the dvalue format, so it is transmitted specially::
 
     {
         "notify": "_Connected",
-        "args": [
-            {
-                "protocolVersion": 1,
-                "versionIdentification":"1 10199 v1.1.0-173-gecd806e-dirty duk command built from Duktape repo"
-            }
-        ]
+        "args": [ "1 10199 v1.1.0-173-gecd806e-dirty duk command built from Duktape repo" ]
     }
 
 When a transport error occurs (not necessarily a terminal error)::
