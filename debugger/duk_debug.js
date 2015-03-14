@@ -23,6 +23,7 @@ var stream = require('stream');
 var path = require('path');
 var fs = require('fs');
 var net = require('net');
+var byline = require('byline');
 var util = require('util');
 var readline = require('readline');
 var sprintf = require('sprintf').sprintf;
@@ -34,6 +35,8 @@ var yaml = require('yamljs');
 var optTargetHost = '127.0.0.1';
 var optTargetPort = 9091;
 var optHttpPort = 9092;
+var optJsonProxyPort = 9093;
+var optJsonProxy = false;
 var optSourceSearchDirs = [ '../ecmascript-testcases' ];
 var optDumpDebugRead = null;
 var optDumpDebugWrite = null;
@@ -88,29 +91,13 @@ var DVAL_NFY = { NFY: true };
 // String map for commands (debug dumping).  A single map works (instead of
 // separate maps for each direction) because command numbers don't currently
 // overlap.
-var debugCommandNames = {};
-debugCommandNames[0x01] = 'Status';
-debugCommandNames[0x02] = 'Print';
-debugCommandNames[0x03] = 'Alert';
-debugCommandNames[0x04] = 'Log';
-debugCommandNames[0x05] = 'Gc';
-debugCommandNames[0x10] = 'BasicInfo';
-debugCommandNames[0x11] = 'TriggerStatus';
-debugCommandNames[0x12] = 'Pause';
-debugCommandNames[0x13] = 'Resume';
-debugCommandNames[0x14] = 'StepInto';
-debugCommandNames[0x15] = 'StepOver';
-debugCommandNames[0x16] = 'StepOut';
-debugCommandNames[0x17] = 'ListBreak';
-debugCommandNames[0x18] = 'AddBreak';
-debugCommandNames[0x19] = 'DelBreak';
-debugCommandNames[0x1a] = 'GetVar';
-debugCommandNames[0x1b] = 'PutVar';
-debugCommandNames[0x1c] = 'GetCallStack';
-debugCommandNames[0x1d] = 'GetLocals';
-debugCommandNames[0x1e] = 'Eval';
-debugCommandNames[0x1f] = 'Detach';
-debugCommandNames[0x20] = 'DumpHeap';
+var debugCommandNames = yaml.load('duk_debugcommands.yaml');
+
+// Map debug command names to numbers.
+var debugCommandNumbers = {};
+debugCommandNames.forEach(function (k, i) {
+    debugCommandNumbers[k] = i;
+});
 
 // Duktape heaphdr type constants, must match C headers
 var DUK_HTYPE_STRING = 1;
@@ -118,30 +105,10 @@ var DUK_HTYPE_OBJECT = 2;
 var DUK_HTYPE_BUFFER = 3;
 
 // Duktape internal class numbers, must match C headers
-var dukClassNames = [
-    'unused',
-    'Arguments',
-    'Array',
-    'Boolean',
-    'Date',
-    'Error',
-    'Function',
-    'JSON',
-    'Math',
-    'Number',
-    'Object',
-    'RegExp',
-    'String',
-    'global',
-    'ObjEnv',
-    'DecEnv',
-    'Buffer',
-    'Pointer',
-    'Thread'
-];
+var dukClassNames = yaml.load('duk_classnames.yaml');
 
 // Bytecode opcode/extraop metadata
-var dukOpcodes = yaml.load('duk_opcodes.yaml')
+var dukOpcodes = yaml.load('duk_opcodes.yaml');
 
 /*
  *  Miscellaneous helpers
@@ -2068,6 +2035,243 @@ DebugWebServer.prototype.emitLocals = function () {
 };
 
 /*
+ *  JSON debug proxy
+ */
+
+// FIXME: better error handling
+// FIXME: adopt JSON/RPC for JSON interface?
+
+function DebugProxy(serverPort) {
+    this.serverPort = serverPort;
+    this.server = null;
+    this.socket = null;
+    this.targetStream = null;
+    this.inputParser = null;
+
+    // preformatted dvalues
+    this.dval_eom = formatDebugValue(DVAL_EOM);
+    this.dval_req = formatDebugValue(DVAL_REQ);
+    this.dval_rep = formatDebugValue(DVAL_REP);
+    this.dval_nfy = formatDebugValue(DVAL_NFY);
+    this.dval_err = formatDebugValue(DVAL_ERR);
+}
+
+DebugProxy.prototype.determineCommandNumber = function (cmdString, cmdNumber) {
+    var ret;
+    if (typeof cmdString === 'string') {
+        ret = debugCommandNumbers[cmdString];
+    }
+    ret = ret || cmdNumber;
+    if (typeof ret !== 'number') {
+        throw Error('cannot figure out command number for "' + cmdString + '" (' + cmdNumber + ')');
+    }
+    return ret;
+};
+
+DebugProxy.prototype.commandNumberToString = function (id) {
+    return debugCommandNames[id] || String(id);
+};
+
+DebugProxy.prototype.formatDvalues = function (args) {
+    if (!args) {
+        return [];
+    }
+    return args.map(function (v) {
+        return formatDebugValue(v);
+    });
+};
+
+DebugProxy.prototype.writeJson = function (val) {
+    this.socket.write(JSON.stringify(val) + '\n');
+};
+
+DebugProxy.prototype.writeJsonSafe = function (val) {
+    try {
+        this.writeJson(val);
+    } catch (e) {
+        console.log('Failed to write JSON in writeJsonSafe, ignoring: ' + e);
+    }
+};
+
+DebugProxy.prototype.disconnectJsonClient = function () {
+    if (this.socket) {
+        this.socket.destroy();
+        this.socket = null;
+    }
+};
+
+DebugProxy.prototype.disconnectTarget = function () {
+    if (this.inputParser) {
+        this.inputParser.close();
+        this.inputParser = null;
+    }
+    if (this.targetStream) {
+        this.targetStream.destroy();
+        this.targetStream = null;
+    }
+};
+
+DebugProxy.prototype.run = function () {
+    var _this = this;
+
+    console.log('Waiting for client connections on port ' + this.serverPort);
+    this.server = net.createServer(function (socket) {
+        console.log('JSON proxy client connected');
+
+        _this.disconnectJsonClient();
+        _this.disconnectTarget();
+
+        // A byline-parser is simple and good enough for now (assume
+        // compact JSON with no newlines).
+        var socketByline = byline(socket);
+        _this.socket = socket;
+
+        socketByline.on('data', function (line) {
+            // console.log('Received json proxy input line: ' + line.toString('utf8'));
+            var msg = JSON.parse(line.toString('utf8'));
+            var first_dval;
+            var args_dvalues = _this.formatDvalues(msg.args);
+            var last_dval = _this.dval_eom;
+            var cmd;
+
+            if (msg.request) {
+                // "request" can be a string or "true"
+                first_dval = _this.dval_req;
+                cmd = _this.determineCommandNumber(msg.request, msg.command);
+            } else if (msg.reply) {
+                first_dval = _this.dval_rep;
+            } else if (msg.notify) {
+                // "notify" can be a string or "true"
+                first_dval = _this.dval_nfy;
+                cmd = _this.determineCommandNumber(msg.notify, msg.command);
+            } else if (msg.error) {
+                first_dval = _this.dval_err;
+            } else {
+                _this.writeJsonSafe({
+                    notify: '_Error',
+                    args: [ 'Ignoring unknown input json message: ' + JSON.stringify(msg) ]
+                });
+                return;
+            }
+
+            _this.targetStream.write(first_dval);
+            if (cmd) {
+                _this.targetStream.write(formatDebugValue(cmd));
+            }
+            args_dvalues.forEach(function (v) {
+                _this.targetStream.write(v);
+            });
+            _this.targetStream.write(last_dval);
+        });
+
+        _this.connectToTarget();
+    }).listen(this.serverPort);
+};
+
+DebugProxy.prototype.connectToTarget = function () {
+    var _this = this;
+
+    console.log('Connecting to ' + optTargetHost + ':' + optTargetPort + '...');
+    this.targetStream = new net.Socket();
+    this.targetStream.connect(optTargetPort, optTargetHost, function () {
+        console.log('Debug transport connected');
+    });
+
+    this.inputParser = new DebugProtocolParser(
+        this.targetStream,
+        null,
+        optDumpDebugRead,
+        optDumpDebugPretty,
+        optDumpDebugPretty ? 'Recv: ' : null,
+        null,
+        null   // console logging is done at a higher level to match request/response
+    );
+
+    this.inputParser.on('transport-close', function () {
+        console.log('Debug transport closed');
+
+        _this.writeJsonSafe({
+            notify: '_Disconnecting'
+        });
+
+        _this.disconnectJsonClient();
+        _this.disconnectTarget();
+    });
+
+    this.inputParser.on('transport-error', function (err) {
+        console.log('Debug transport error', err);
+
+        _this.writeJsonSafe({
+            notify: '_Error',
+            args: [ String(err) ]
+        });
+    });
+
+    this.inputParser.on('protocol-version', function (msg) {
+        var ver = msg.protocolVersion;
+        console.log('Debug version identification:', msg.versionIdentification);
+
+        _this.writeJson({
+            notify: '_Connected',
+            args: [ msg ]  // FIXME
+        });
+
+        if (ver !== 1) {
+            console.log('Protocol version ' + ver + ' unsupported, dropping connection');
+        }
+    });
+
+    this.inputParser.on('debug-message', function (msg) {
+        var t;
+
+        //console.log(msg);
+
+        if (typeof msg[0] !== 'object') {
+            throw new Error('unexpected initial dvalue: ' + msg[0]);
+        } else if (msg[0].EOM) {
+            throw new Error('unexpected initial dvalue: ' + msg[0]);
+        } else if (msg[0].REQ) {
+            if (typeof msg[1] !== 'number') {
+                throw new Error('unexpected request command number: ' + msg[1]);
+            }
+            t = {
+                request: _this.commandNumberToString(msg[1]),
+                command: msg[1],
+                args: msg.slice(2, msg.length - 1)
+            }
+            _this.writeJson(t);
+        } else if (msg[0].REP) {
+            t = {
+                reply: true,
+                args: msg.slice(1, msg.length - 1)
+            }
+            _this.writeJson(t);
+        } else if (msg[0].ERR) {
+            t = {
+                error: true,
+                args: msg.slice(1, msg.length - 1)
+            }
+            _this.writeJson(t);
+        } else if (msg[0].NFY) {
+            if (typeof msg[1] !== 'number') {
+                throw new Error('unexpected notify command number: ' + msg[1]);
+            }
+            t = {
+                notify: _this.commandNumberToString(msg[1]),
+                command: msg[1],
+                args: msg.slice(2, msg.length - 1)
+            }
+            _this.writeJson(t);
+        } else {
+            throw new Error('unexpected initial dvalue: ' + msg[0]);
+        }
+    });
+
+    this.inputParser.on('stats-update', function () {
+    });
+};
+
+/*
  *  Command line parsing and initialization
  */
 
@@ -2086,6 +2290,12 @@ function main() {
     }
     if (argv['http-port']) {
         optHttpPort = argv['http-port'];
+    }
+    if (argv['json-proxy-port']) {
+        optJsonProxyPort = argv['json-proxy-port'];
+    }
+    if (argv['json-proxy']) {
+        optJsonProxy = argv['json-proxy'];
     }
     if (argv['source-dirs']) {
         optSourceSearchDirs = argv['source-dirs'].split(path.delimiter);
@@ -2110,6 +2320,8 @@ function main() {
     console.log('  --target-host:       ' + optTargetHost);
     console.log('  --target-port:       ' + optTargetPort);
     console.log('  --http-port:         ' + optHttpPort);
+    console.log('  --json-proxy-port:   ' + optJsonProxyPort);
+    console.log('  --json-proxy:        ' + optJsonProxy);
     console.log('  --source-dirs:       ' + optSourceSearchDirs.join(' '));
     console.log('  --dump-debug-read:   ' + optDumpDebugRead);
     console.log('  --dump-debug-write:  ' + optDumpDebugWrite);
@@ -2120,12 +2332,19 @@ function main() {
     // Create debugger and web UI singletons, tie them together and
     // start them.
 
-    var dbg = new Debugger();
-    var web = new DebugWebServer();
-    dbg.web = web;
-    web.dbg = dbg;
-    dbg.run();
-    web.run();
+    if (optJsonProxy) {
+        console.log('Starting in JSON proxy mode, JSON port: ' + optJsonProxyPort);
+
+        var prx = new DebugProxy(optJsonProxyPort);
+        prx.run();
+    } else {
+        var dbg = new Debugger();
+        var web = new DebugWebServer();
+        dbg.web = web;
+        web.dbg = dbg;
+        dbg.run();
+        web.run();
+    }
 }
 
 main();
