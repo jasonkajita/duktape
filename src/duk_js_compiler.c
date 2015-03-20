@@ -7604,6 +7604,7 @@ DUK_LOCAL duk_ret_t duk__js_compile_raw(duk_context *ctx) {
 DUK_INTERNAL void duk_js_compile(duk_hthread *thr, const duk_uint8_t *src_buffer, duk_size_t src_length, duk_small_uint_t flags) {
 	duk_context *ctx = (duk_context *) thr;
 	duk__compiler_stkstate comp_stk;
+	duk_compiler_ctx *comp_ctx;
 
 	/* XXX: this illustrates that a C catchpoint implemented using duk_safe_call()
 	 * is a bit heavy at the moment.  The wrapper compiles to ~180 bytes on x64.
@@ -7620,31 +7621,51 @@ DUK_INTERNAL void duk_js_compile(duk_hthread *thr, const duk_uint8_t *src_buffer
 	comp_stk.comp_ctx_alloc.lex.input = src_buffer;
 	comp_stk.comp_ctx_alloc.lex.input_length = src_length;
 
+	duk_dup_top(ctx);
 	duk_push_pointer(ctx, (void *) &comp_stk);
 
-	/* [ ... filename &comp_stk ] */
+	/* [ ... filename filename &comp_stk ] */
 
 	if (duk_safe_call(ctx, duk__js_compile_raw, 2 /*nargs*/, 1 /*nret*/) != DUK_EXEC_SUCCESS) {
 		/* This now adds a line number to -any- error thrown during compilation.
 		 * Usually compilation errors are SyntaxErrors but they could also be
 		 * out-of-memory errors and the like.
+		 *
+		 * Also insert a fake tracedata entry to provide fileName and lineNumber.
 		 */
+
+		/* [ ... filename error ] */
+
+		comp_ctx = &comp_stk.comp_ctx_alloc;
 
 		DUK_DDD(DUK_DDDPRINT("compile error, before adding line info: %!T",
 		                     (duk_tval *) duk_get_tval(ctx, -1)));
 		if (duk_is_object(ctx, -1)) {
 			if (duk_get_prop_stridx(ctx, -1, DUK_STRIDX_MESSAGE)) {
-				duk_push_sprintf(ctx, " (line %ld)", (long) comp_stk.comp_ctx_alloc.curr_token.start_line);
+				duk_push_sprintf(ctx, " (line %ld)", (long) comp_ctx->curr_token.start_line);
 				duk_concat(ctx, 2);
 				duk_put_prop_stridx(ctx, -2, DUK_STRIDX_MESSAGE);
 			} else {
 				duk_pop(ctx);
 			}
+
+			if (duk_get_prop_stridx(ctx, -1, DUK_STRIDX_INT_TRACEDATA)) {
+				/* [ ... filename error tracedata ] */
+				duk_dup(ctx, -3);
+				duk_put_prop_index(ctx, -2, 0);
+				duk_push_uint(ctx, (duk_uint_t) comp_ctx->curr_token.start_line);  /* (flags<<32) + (line), flags = 0 */
+				duk_put_prop_index(ctx, -2, 1);
+			}
+			duk_pop(ctx);
 		}
 		DUK_DDD(DUK_DDDPRINT("compile error, after adding line info: %!T",
 		                     (duk_tval *) duk_get_tval(ctx, -1)));
 		duk_throw(ctx);
 	}
+
+	/* [ ... filename template ] */
+
+	duk_remove(ctx, -2);
 
 	/* [ ... template ] */
 }
