@@ -177,11 +177,6 @@ typedef duk_uint32_t duk_instr_t;
 #define DUK_EXTRAOP_LABEL           32
 #define DUK_EXTRAOP_ENDLABEL        33
 
-/* DUK_OP_EXTRA for debugging */
-#define DUK_EXTRAOP_DUMPREG         128
-#define DUK_EXTRAOP_DUMPREGS        129
-#define DUK_EXTRAOP_LOGMARK         130
-
 /* DUK_OP_CALL flags in A */
 #define DUK_BC_CALL_FLAG_TAILCALL           (1 << 0)
 #define DUK_BC_CALL_FLAG_EVALCALL           (1 << 1)
@@ -193,8 +188,7 @@ typedef duk_uint32_t duk_instr_t;
 #define DUK_BC_TRYCATCH_FLAG_WITH_BINDING   (1 << 3)
 
 /* DUK_OP_RETURN flags in A */
-#define DUK_BC_RETURN_FLAG_FAST             (1 << 0)
-#define DUK_BC_RETURN_FLAG_HAVE_RETVAL      (1 << 1)
+#define DUK_BC_RETURN_FLAG_HAVE_RETVAL      (1 << 0)
 
 /* DUK_OP_DECLVAR flags in A; bottom bits are reserved for propdesc flags (DUK_PROPDESC_FLAG_XXX) */
 #define DUK_BC_DECLVAR_FLAG_UNDEF_VALUE     (1 << 4)  /* use 'undefined' for value automatically */

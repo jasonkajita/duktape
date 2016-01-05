@@ -2,9 +2,6 @@
 Duktape debugger
 ================
 
-**The debugger support is currently experimental, i.e. may change in an
-incompatible way even in a minor release.**
-
 Introduction
 ============
 
@@ -13,16 +10,16 @@ Overview
 
 Duktape provides the following basic debugging features:
 
-* Execution status: running/paused at file/line, call stack, local variables
+* Execution status: running/paused at file/line, callstack, local variables
 
 * Execution control: pause, resume, step over, step into, step out
 
 * Breakpoints: file/line pair targeted breakpoint list, "debugger" statement
 
-* Eval in the context of the current activation when paused (can be used
-  to implement basic watch expressions)
+* Eval in the context of any activation on the callstack when paused (can be
+  used to implement basic watch expressions)
 
-* Get/put variable
+* Get/put variable at any callstack level
 
 * Forwarding of print(), alert(), and logger writes
 
@@ -59,13 +56,14 @@ To integrate debugger support into your target, you need to:
 * **Check your feature options**: define ``DUK_OPT_DEBUGGER_SUPPORT`` and
   ``DUK_OPT_INTERRUPT_COUNTER`` to enable debugger support in Duktape.
   Also consider other debugging related feature options, like forwarding
-  ``print()``/``alert()`` to the debug client.
+  built-in ``print()``/``alert()`` calls (``DUK_OPT_DEBUGGER_FWD_PRINTALERT``)
+  and logging (``DUK_OPT_DEBUGGER_FWD_LOGGING``) to the debug client.
 
 * **Implement a concrete stream transport mechanism**: needed for both the
   target device and the Duktape debugger.  The best transport depends on the
   target, e.g. a TCP socket, a serial link, or embedding debug data in an
   existing custom protocol.  An example TCP debug transport is given in
-  ``examples/debug-trans-socket/duk_debug_trans_socket.c``.
+  ``examples/debug-trans-socket/duk_trans_socket.c``.
 
 * **Add code to attach a debugger**: call ``duk_debugger_attach()`` when it is
   time to start debugging.  Duktape will pause execution and process debug
@@ -116,6 +114,22 @@ The example debugger stuff includes:
 
 **While TCP is a good example transport, it is not a "standard" transport:
 the transport is always ultimately up to the user code.**
+
+Example local debugger
+----------------------
+
+While a remote debug client is usually preferable, in some cases it may be
+useful to terminate the debug connection in the same process as where Duktape
+is running.  From Duktape perspective a "local" debugger is just like a remote
+one: a debug transport implementation hides the difference from Duktape.
+There's an example debug transport with a local dvalue encoder/decoder:
+
+* ``examples/debug-trans-dvalue/``
+
+The example transport hides the details of encoding and decoding dvalues, and
+makes it easier to write a local debug client.  The transport also serves as
+an example for dealing with dvalues in C (the Node.js debugger has a similar
+example for Javascript).
 
 What Duktape doesn't provide
 ----------------------------
@@ -671,9 +685,10 @@ some cases:
 |                       |           | length in network order and buffer    |
 |                       |           | data follows initial byte             |
 +-----------------------+-----------+---------------------------------------+
-| 0x15                  | unused    | Represents the internal "undefined    |
-|                       |           | unused" type which used to e.g. mark  |
-|                       |           | unused (unmapped) array entries       |
+| 0x15                  | unused    | Represents an unused/none value, used |
+|                       |           | internally to mark unmapped array     |
+|                       |           | entries and in the debugger protocol  |
+|                       |           | to indicate a "none" result           |
 +-----------------------+-----------+---------------------------------------+
 | 0x16                  | undefined | Ecmascript "undefined"                |
 +-----------------------+-----------+---------------------------------------+
@@ -694,8 +709,9 @@ some cases:
 | 0x1d <uint16> <uint8> | lightfunc | Lightfunc flags, pointer length,      |
 | <data>                |           | pointer data (network endian)         |
 +-----------------------+-----------+---------------------------------------+
-| 0x1e <uint8> <data>   | heapptr   | Pointer to a heap object (used by     |
-|                       |           | DumpHeap, network endian)             |
+| 0x1e <uint8> <data>   | heapptr   | Pointer length, pointer data (network |
+|                       |           | endian); pointer to heap object, used |
+|                       |           | by DumpHeap                           |
 +-----------------------+-----------+---------------------------------------+
 | 0x1f                  | reserved  |                                       |
 +-----------------------+-----------+---------------------------------------+
@@ -710,6 +726,10 @@ some cases:
 | 0xc0...0xff <uint8>   | integer   | Integer [0,16383], integer value is   |
 |                       |           | ((IB - 0xc0) << 8) + followup_byte    |
 +-----------------------+-----------+---------------------------------------+
+
+All "integer" representations are semantically the same, i.e. they can all
+be used wherever an integer is expected.  Same applies to "string" and
+"buffer" representations.
 
 The dvalue typing is sufficient to represent ``duk_tval`` values so that
 typing can be preserved (e.g. strings and buffers have separate types).
@@ -782,6 +802,22 @@ Notes:
   values must be accepted.  The plain integers map uniquely to IEEE doubles
   so there's no loss of information.  Note that a negative zero must be
   represented as an IEEE double to preserve the sign.
+
+* Fast integers (fastint) are not distinguish from ordinary numbers in the
+  debugger protocol.
+
+* Plain buffer values are represented explicitly, but buffer objects
+  (Duktape.Buffer, Node.js Buffer, ArrayBuffer, DataView, and TypedArray
+  views) are represented as objects.  This means that their contents are
+  not transmitted, only their heap pointer and a class number.
+
+* The "unused" value is special: it's used internally by Duktape to mark
+  unmapped array entries, but is not intended to be used for actual values
+  (entries on the value stack, property values, etc).  The "unused" value
+  is used in the debugger protocol to denote a missing/none value in some
+  command replies.  It's not used in requests, so the debug client should
+  never send an "unused" dvalue in a request (e.g. PutVar); Duktape will
+  reject such a request as having a format error.
 
 Endianness
 ----------
@@ -1265,6 +1301,55 @@ Example::
 
 Logger output redirected from Duktape logger calls.
 
+Throw notification (0x05)
+-------------------------
+
+Format::
+
+    NFY <int: 5> <int: fatal> <str: msg> <str: filename> <int: linenumber> EOM
+
+Example::
+
+    NFY 5 1 "ReferenceError: identifier not defined" "pig.js" 812 EOM
+
+Fatal is one of:
+
+* 0x00: caught
+* 0x01: fatal (uncaught)
+
+Duktape sends a Throw notification whenever an error is thrown, either by
+Duktape due to a runtime error or directly by Ecmascript code.
+
+msg is the string-coerced value being thrown.  Filename and line number are
+taken directly from the thrown object if it is an Error instance (after
+augmentation), otherwise these values are calculated from the bytecode
+executor state.
+
+Detaching notification (0x06)
+-----------------------------
+
+Format::
+
+    NFY <int: 6> <int: reason> [<str: msg>] EOM
+
+Example::
+
+    NFY 6 1 "error parsing dvalue" EOM
+
+Reason is one of:
+
+* 0x00: normal detach
+
+* 0x01: detaching due to stream error
+
+Duktape sends a Detaching notification when the debugger is detaching.  If the
+target drops the transport without the client seeing this notification, it can
+assume the connection was lost and react accordingly (for example by trying to
+reestablish the link).
+
+``msg`` is an optional string elaborating on the reason for the detach.  It may
+or may not be present depending on the nature of detachment.
+
 Commands sent by debug client
 =============================
 
@@ -1452,7 +1537,7 @@ GetVar request (0x1a)
 
 Format::
 
-    REQ <int: 0x1a> <str: varname> EOM
+    REQ <int: 0x1a> <str: varname> [<int: level>] EOM
     REP <int: 0/1, found> <tval: value> EOM
 
 Example::
@@ -1460,18 +1545,26 @@ Example::
     REQ 26 "testVar" EOM
     REP 1 "myValue" EOM
 
+Level specifies the callstack depth, where -1 is the topmost (current) function,
+-2 is the calling function, etc.  If not provided, the topmost function will be
+used.
+
 PutVar request (0x1b)
 ---------------------
 
 Format::
 
-    REQ <int: 0x1b> <str: varname> <tval: value> EOM
+    REQ <int: 0x1b> <str: varname> <tval: value> [<int: level>] EOM
     REP EOM
 
 Example::
 
     REQ 27 "testVar" "newValue" EOM
     REP EOM
+
+Level specifies the callstack depth, where -1 is the topmost (current) function,
+-2 is the calling function, etc.  If not provided, the topmost function will be
+used.
 
 GetCallStack request (0x1c)
 ---------------------------
@@ -1486,20 +1579,29 @@ Example::
     REQ 28 EOM
     REP "foo.js" "doStuff" 100 317 "bar.js" "doOtherStuff" 210 880 EOM
 
+List callstack entries from top to bottom.
+
 GetLocals request (0x1d)
 ------------------------
 
 Format::
 
-    REQ <int: 0x1d> EOM
-    REP [ <str: varName> <str: varValue> ]* EOM
+    REQ <int: 0x1d> [<int: level>] EOM
+    REP [ <str: varName> <tval: varValue> ]* EOM
 
 Example::
 
     REQ 29 EOM
     REP "x" "1" "y" "3.1415" "foo" "bar" EOM
 
-List local variable names from current function (the internal ``_Varmap``).
+List local variable names from specified activation (the internal ``_Varmap``).
+Level specifies the callstack depth, where -1 is the topmost (current) function,
+-2 is the calling function, etc.  If not provided, the topmost function will be
+used.
+
+The result includes only local variables declared with ``var`` and locally
+declared functions.  Variables outside the current function scope, including
+outer functions and global variables, are not included.
 
 .. note:: The local variable list doesn't currently include dynamically
    declared variables introduced by e.g. eval(), or variables with a
@@ -1511,7 +1613,7 @@ Eval request (0x1e)
 
 Format::
 
-    REQ <int: 0x1e> <str: expression> EOM
+    REQ <int: 0x1e> <str: expression> [<int: level>] EOM
     REP <int: 0=success, 1=error> <tval: value> EOM
 
 Example::
@@ -1519,10 +1621,17 @@ Example::
     REQ 30 "1+2" EOM
     REP 0 3 EOM
 
+Level specifies the callstack depth, where -1 is the topmost (current) function,
+-2 is the calling function, etc.  If not provided, the topmost function will be
+used (as with a real ``eval()``).  The level affects only the lexical scope of
+the code evaluated.  The callstack will be intact, and will be visible in e.g.
+stack traces and ``Duktape.act()``.
+
 The eval expression is evaluated as if a "direct call" to eval was executed
-in the position where execution has paused.  A direct eval call shares the
-same lexical scope as the function it is called from (an indirect eval call
-does not).  For instance, suppose we're executing::
+in the position where execution has paused, in the lexical scope specified by
+the provided callstack index.  A direct eval call shares the same lexical scope
+as the function it is called from (an indirect eval call does not).  For
+instance, suppose we're executing::
 
     function foo(x, y) {
         print(x);  // (A)
@@ -1638,7 +1747,7 @@ Ecmascript has a debugger statement::
 The E5 specification states that:
 
     Evaluating the DebuggerStatement production may allow an implementation
-    to cause a breakpoint when run under a debugger. If a debugger is not
+    to cause a breakpoint when run under a debugger.  If a debugger is not
     present or active this statement has no observable effect.
 
 Other Ecmascript engines typically treat a debugger statement as a breakpoint:
@@ -1916,7 +2025,7 @@ The step state is rather tricky:
   not matter).  Execute in normal mode (unless there are breakpoints, of course).
   If the activation is unwound for any reason, enter paused mode.  This means
   that if an error is thrown, we resume execution in the catcher.  Step out
-  handling is concretely implemented as part of call stack unwinding, which
+  handling is concretely implemented as part of callstack unwinding, which
   differs completely from how other step commands are implemented.
 
   A coroutine yield does not trigger a "step out" because the callstack is not
@@ -1990,23 +2099,42 @@ constructs.  Something like the following is entirely possible, and normal::
     60      105
     61      100   <--
 
+There may also be several PCs which are "entry points" for a certain line
+number.  This happens with e.g. loop constructs.
+
 A breakpoint may also be targeted on a line number which doesn't have any
 matching bytecode instructions.  This can happen trivially when a breakpoint
 is assigned to an empty line, but can also happen non-trivially when the line
 numbers in the generated bytecode are off by one or otherwise unintuitive.
-The expected behavior in this case is often that the breakpoint should be
-triggered when we transition to the breakpoint line *or* over it.  In more
-concrete terms::
+The expected behavior is often for the breakpoint to match when we transition
+to the breakpoint line *or* over it.  There are several difficulties in using
+this breakpoint rule however:
 
-    (prev_line < break_line) AND (curr_line >= break_line)
+* There are potentially multiple "next lines" or "next opcodes".  Consider
+  a breakpoint on an empty line in the middle of a switch statement.
 
-Implementing breakpoints in terms of line transitions also solves another
-related issue: once we hit a breakpoint on a certain line, how to implement
-"step into" / "step over"?  Stepping away from the breakpoint line means we
-need to execute bytecode instructions until current line changes to a value
-different than the breakpoint line.  Note that this is not necessarily the
-next line or even a higher line number because control flow can maka a jump
-backwards.
+* Using ``(prev_line < break_line) AND (curr_line >= break_line)`` as the
+  rule to trigger a breakpoint works for the most part, but causes some
+  unintuitive breakpoint behavior, especially when a breakpoint is in a
+  conditional code block which is skipped but not executed.  See discussion
+  in: https://github.com/svaarala/duktape/issues/263.  (Duktape 1.2.x used
+  this breakpoint rule; the rule was changed in Duktape 1.3.x.)
+
+The current rule (Duktape 1.3.x) for breakpoint triggering is::
+
+    (prev_line != break_line) AND (curr_line == break_line)
+
+In other words, a breakpoint is triggered when we transition to the exact
+breakpoint line.  See discussion in
+https://github.com/svaarala/duktape/issues/263.
+
+Implementing breakpoints in terms of line transitions (instead of e.g. PC
+values) also solves another related issue: once we hit a breakpoint on a
+certain line, how to implement "step into" / "step over"?  Stepping away from
+the breakpoint line means we need to execute bytecode instructions until
+current line changes to a value different than the breakpoint line.  Note
+that this is not necessarily the next line or even a higher line number
+because control flow can maka a jump backwards.
 
 So, right now Duktape implements breakpoints as follows:
 
@@ -2066,6 +2194,35 @@ then determine active breakpoints for a function FUNC as follows:
     considered to "capture" the breakpoint.
 
 * Accept breakpoint as active for FUNC execution.
+
+PC and line number handling
+---------------------------
+
+In internal book-keeping the PC field of a ``duk_activation`` refers to the
+next instruction to execute.  This PC is not always the correct one to report.
+Conceptually the previous instruction (PC-1) is sometimes still being executed
+while sometimes we're in the middle of two opcodes, having finished execution
+of PC-1.
+
+The correct PC to use depends on context.  For example:
+
+* In stack traces PC-1 is used for all callstack levels.  For activations
+  below the callstack top PC-1 is the instruction still being executed (it
+  is the call instruction).  For callstack top PC-1 is the "offending"
+  instruction.
+
+* For debugger Status notification PC is used because we've conceptually
+  completed PC-1 and are about to execute PC.  Breakpoints also trigger
+  at PC *before* the opcode at PC is executed.  In a debugger UI this means
+  that the line highlighted is the next line to execute, and hasn't been
+  executed yet.
+
+* For debugger GetCallStack PC-1 is used for all callstack levels below
+  the callstack top: as for stack traces, these call instructions are still
+  being executed.  However, for callstack top PC is used to match Status,
+  so that the line reported indicates what line will be executed next.
+
+See: https://github.com/svaarala/duktape/issues/281.
 
 Avoid nested message writing
 ----------------------------
@@ -2443,7 +2600,7 @@ You may get the following when doing a DumpHeap::
 
     ==17318== Syscall param write(buf) points to uninitialised byte(s)
     ==17318==    at 0x5466700: __write_nocancel (syscall-template.S:81)
-    ==17318==    by 0x427ADA: duk_debug_trans_socket_write (duk_debug_trans_socket.c:237)
+    ==17318==    by 0x427ADA: duk_trans_socket_write_cb (duk_trans_socket.c:237)
     ==17318==    by 0x403538: duk_debug_write_bytes.isra.11 (duk_debugger.c:379)
     ==17318==    by 0x4036AC: duk_debug_write_strbuf (duk_debugger.c:463)
     [...]
@@ -2493,14 +2650,6 @@ There are several ways to make this faster:
 * Emit explicit line transition opcodes.  This has a memory and performance
   impact, even when a debugger is not attached, so this approach is also not
   very desirable.
-
-Fix debugger statement line handling
-------------------------------------
-
-When executing a "debugger;" statement, the debugger currently pauses after PC
-has already been incremented.  In other words, the debugger is paused "after"
-the statement has been executed.  In the debugger UI this looks like execution
-had paused on the line following the debugger statement.
 
 Improve compiler line number accuracy
 -------------------------------------
@@ -2561,8 +2710,6 @@ Various triggers for pausing could be added:
 * Pause on function entry/exit
 
 * Pause on next statement
-
-* Pause on error about the be thrown
 
 * Pause on yield/resume
 
@@ -2652,10 +2799,6 @@ so that it doesn't necessarily have to be in the debug protocol.
 Possible new commands or command improvements
 ---------------------------------------------
 
-* Add callstack index to variable read/write
-
-* Add callstack index to Eval
-
 * More comprehensive callstack inspection, at least on par with what a stack
   trace provides
 
@@ -2732,6 +2875,71 @@ directly with dvalues, so that when C code does a::
 an arbitrarily complex object value (perhaps even an arbitrary object graph)
 can be decoded and pushed to the value stack.
 
+Heap walking support
+--------------------
+
+One option for structured value support is to add support for walking of
+heap objects: the debug client could read heap objects directly, get their
+type and properties, read off further object references, etc.
+
+The basic problem with this approach is pointer safety: if any values
+referenced by the client have already been freed, memory unsafe behavior
+results.  This is quite easy to trigger for e.g. Eval results (which
+become unreachable right after Eval is complete).
+
+Some solutions:
+
+* Prevent mark-and-sweep and refzero queue processing while the debugger
+  message loop is active (or perhaps only when the debugger is paused).
+  This makes heap walking automatically safe while the target is paused,
+  even for objects with a zero refcount, and would be quite intuitive for
+  the debug client because no commands are needed to ensure safety.  One
+  downside is that one might run out of memory doing e.g. a lot of Evals
+  in the paused state.  A few options with this approach:
+
+  - Add an explicit command which allows the debug client to indicate it's
+    safe to run GC on pending objects (while remaining paused).  This would
+    allow the debug client to free resources in certain states (for example,
+    after every heap viewer UI update) so that memory usage wouldn't grow
+    without bound when e.g. also doing a lot of Evals.
+
+  - Add an explicit command to keep the GC freeze active even after resuming
+    the program.  The freeze would be lifted if the debug transport were
+    dropped.  It might also make sense for the freeze to be lifted on the
+    next resume unless the client requests for the freeze to be kept again;
+    this would ensure the freeze wouldn't accidentally be left active
+    indefinitely.
+
+* Add explicit "start walking" and "stop walking" commands to the debug
+  protocol which similarly freeze garbage collection.  This allows the debug
+  client to "lock the heap" for inspection and later on release it.  There
+  would also need to be a mechanism to automatically release the lock if the
+  debug transport was severed (walking state could be kept after a resume, if
+  that was useful for the debug client).  To ensure the debug client behaves
+  correctly, heap walk commands could be rejected when the walking state is
+  not active; this would prevent accidental pointer lookups using unsafe
+  pointers.  The downside of this approach is that pointer walking is either
+  unsafe or causes explicit errors, unless explicit start/stop walk commands
+  are issued by the debug client.
+
+* Use object pinning: debug client would explicitly pin an object it is
+  watching.  That pinning would make the object behave like a reachability
+  root so that anything else that object references would be considered
+  reachable.  There would have to be an automatic mechanism to recover from
+  broken transports etc, so that pinned objects would be automatically
+  unpinned in certain situations.  While pinning is a little awkward for the
+  debug client, it's more accurate than freezing the whole heap for inspection
+  and can be more easily used for a longer time on a running program.
+
+* A variant of object pinning: instead of using heap object flags for
+  pinning, simply add a reachable array e.g. into the heap stash for
+  debugger use.  The debugger could then push objects into the array to
+  effectively pin them (as they'd be reachable through the stash).  When
+  the debugger detaches, that array could be deleted.  This would be quite
+  simple to implement and have a logical automatic unpin mechanism.
+
+See discussion: https://github.com/svaarala/duktape/issues/358.
+
 Heap dump viewer
 ----------------
 
@@ -2762,3 +2970,17 @@ Currently the list of breakpoints is not cleared by attach or detach, so if
 you detach and then re-attach, old breakpoints are still set.  The debug
 client can just delete all breakpoints on attach, but it'd be cleaner to
 remove the breakpoints on either attach or detach.
+
+Indicate fastint status
+-----------------------
+
+When debugging code that is intended to operate with fastints, it would be
+useful to see when a value is internally represented as a fastint vs. a full
+IEEE double.  Currently this information is not conveyed by the protocol, and
+all fastints appear like any other number values.
+
+Buffer object support
+---------------------
+
+Make it easier to see buffer object contents (like for plain buffers), either
+by serializing them differently, or through heap walking.

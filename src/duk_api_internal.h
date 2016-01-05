@@ -28,6 +28,10 @@ duk_bool_t duk_valstack_resize_raw(duk_context *ctx,
                                    duk_size_t min_new_size,
                                    duk_small_uint_t flags);
 
+#if defined(DUK_USE_VERBOSE_ERRORS) && defined(DUK_USE_PARANOID_ERRORS)
+DUK_INTERNAL_DECL const char *duk_get_type_name(duk_context *ctx, duk_idx_t index);
+#endif
+
 DUK_INTERNAL_DECL duk_tval *duk_get_tval(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_tval *duk_require_tval(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL void duk_push_tval(duk_context *ctx, duk_tval *tv);
@@ -43,6 +47,18 @@ DUK_INTERNAL_DECL duk_hobject *duk_push_this_coercible_to_object(duk_context *ct
 /* duk_push_this() + CheckObjectCoercible() + duk_to_string() */
 DUK_INTERNAL_DECL duk_hstring *duk_push_this_coercible_to_string(duk_context *ctx);
 
+/* Get a borrowed duk_tval pointer to the current 'this' binding.  Caller must
+ * make sure there's an active callstack entry.  Note that the returned pointer
+ * is unstable with regards to side effects.
+ */
+DUK_INTERNAL_DECL duk_tval *duk_get_borrowed_this_tval(duk_context *ctx);
+
+/* XXX: add fastint support? */
+#define duk_push_u64(ctx,val) \
+	duk_push_number((ctx), (duk_double_t) (val))
+#define duk_push_i64(ctx,val) \
+	duk_push_number((ctx), (duk_double_t) (val))
+
 /* duk_push_(u)int() is guaranteed to support at least (un)signed 32-bit range */
 #define duk_push_u32(ctx,val) \
 	duk_push_uint((ctx), (duk_uint_t) (val))
@@ -57,13 +73,6 @@ DUK_INTERNAL_DECL duk_hstring *duk_push_this_coercible_to_string(duk_context *ct
 #define duk_push_size_t(ctx,val) \
 	duk_push_uint((ctx), (duk_uint_t) (val))  /* XXX: assumed to fit for now */
 
-/* internal helper for looking up a tagged type */
-#define  DUK_GETTAGGED_FLAG_ALLOW_NULL  (1L << 24)
-#define  DUK_GETTAGGED_FLAG_CHECK_CLASS (1L << 25)
-#define  DUK_GETTAGGED_CLASS_SHIFT      16
-
-DUK_INTERNAL_DECL duk_heaphdr *duk_get_tagged_heaphdr_raw(duk_context *ctx, duk_idx_t index, duk_uint_t flags_and_tag);
-
 DUK_INTERNAL_DECL duk_hstring *duk_get_hstring(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_hobject *duk_get_hobject(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_hbuffer *duk_get_hbuffer(duk_context *ctx, duk_idx_t index);
@@ -71,10 +80,7 @@ DUK_INTERNAL_DECL duk_hthread *duk_get_hthread(duk_context *ctx, duk_idx_t index
 DUK_INTERNAL_DECL duk_hcompiledfunction *duk_get_hcompiledfunction(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_hnativefunction *duk_get_hnativefunction(duk_context *ctx, duk_idx_t index);
 
-#define duk_get_hobject_with_class(ctx,index,classnum) \
-	((duk_hobject *) duk_get_tagged_heaphdr_raw((ctx), (index), \
-		DUK_TAG_OBJECT | DUK_GETTAGGED_FLAG_ALLOW_NULL | \
-		DUK_GETTAGGED_FLAG_CHECK_CLASS | ((classnum) << DUK_GETTAGGED_CLASS_SHIFT)))
+DUK_INTERNAL_DECL duk_hobject *duk_get_hobject_with_class(duk_context *ctx, duk_idx_t index, duk_small_uint_t classnum);
 
 #if 0  /* This would be pointless: unexpected type and lightfunc would both return NULL */
 DUK_INTERNAL_DECL duk_hobject *duk_get_hobject_or_lfunc(duk_context *ctx, duk_idx_t index);
@@ -86,30 +92,33 @@ DUK_INTERNAL_DECL void *duk_get_voidptr(duk_context *ctx, duk_idx_t index);
 #endif
 
 DUK_INTERNAL_DECL duk_hstring *duk_to_hstring(duk_context *ctx, duk_idx_t index);
+#if defined(DUK_USE_DEBUGGER_SUPPORT)  /* only needed by debugger for now */
+DUK_INTERNAL_DECL duk_hstring *duk_safe_to_hstring(duk_context *ctx, duk_idx_t index);
+#endif
+DUK_INTERNAL_DECL void duk_to_object_class_string_top(duk_context *ctx);
+#if !defined(DUK_USE_PARANOID_ERRORS)
+DUK_INTERNAL_DECL void duk_push_hobject_class_string(duk_context *ctx, duk_hobject *h);
+#endif
+
 DUK_INTERNAL_DECL duk_int_t duk_to_int_clamped_raw(duk_context *ctx, duk_idx_t index, duk_int_t minval, duk_int_t maxval, duk_bool_t *out_clamped);  /* out_clamped=NULL, RangeError if outside range */
 DUK_INTERNAL_DECL duk_int_t duk_to_int_clamped(duk_context *ctx, duk_idx_t index, duk_int_t minval, duk_int_t maxval);
 DUK_INTERNAL_DECL duk_int_t duk_to_int_check_range(duk_context *ctx, duk_idx_t index, duk_int_t minval, duk_int_t maxval);
+#if defined(DUK_USE_BUFFEROBJECT_SUPPORT)
+DUK_INTERNAL_DECL duk_uint8_t duk_to_uint8clamped(duk_context *ctx, duk_idx_t index);
+#endif
 
 DUK_INTERNAL_DECL duk_hstring *duk_require_hstring(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_hobject *duk_require_hobject(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_hbuffer *duk_require_hbuffer(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_hthread *duk_require_hthread(duk_context *ctx, duk_idx_t index);
-#if 0  /*unused */
 DUK_INTERNAL_DECL duk_hcompiledfunction *duk_require_hcompiledfunction(duk_context *ctx, duk_idx_t index);
-#endif
 DUK_INTERNAL_DECL duk_hnativefunction *duk_require_hnativefunction(duk_context *ctx, duk_idx_t index);
 
-#define duk_require_hobject_with_class(ctx,index,classnum) \
-	((duk_hobject *) duk_get_tagged_heaphdr_raw((ctx), (index), \
-		DUK_TAG_OBJECT | \
-		DUK_GETTAGGED_FLAG_CHECK_CLASS | ((classnum) << DUK_GETTAGGED_CLASS_SHIFT)))
+DUK_INTERNAL_DECL duk_hobject *duk_require_hobject_with_class(duk_context *ctx, duk_idx_t index, duk_small_uint_t classnum);
 
 DUK_INTERNAL_DECL duk_hobject *duk_require_hobject_or_lfunc(duk_context *ctx, duk_idx_t index);
 DUK_INTERNAL_DECL duk_hobject *duk_require_hobject_or_lfunc_coerce(duk_context *ctx, duk_idx_t index);
 
-#if defined(DUK_USE_DEBUGGER_SUPPORT)
-DUK_INTERNAL_DECL void duk_push_unused(duk_context *ctx);
-#endif
 DUK_INTERNAL_DECL void duk_push_hstring(duk_context *ctx, duk_hstring *h);
 DUK_INTERNAL_DECL void duk_push_hstring_stridx(duk_context *ctx, duk_small_int_t stridx);
 DUK_INTERNAL_DECL void duk_push_hobject(duk_context *ctx, duk_hobject *h);
@@ -131,6 +140,12 @@ DUK_INTERNAL_DECL void duk_push_c_function_noconstruct_noexotic(duk_context *ctx
 DUK_INTERNAL_DECL void duk_push_string_funcptr(duk_context *ctx, duk_uint8_t *ptr, duk_size_t sz);
 DUK_INTERNAL_DECL void duk_push_lightfunc_name(duk_context *ctx, duk_tval *tv);
 DUK_INTERNAL_DECL void duk_push_lightfunc_tostring(duk_context *ctx, duk_tval *tv);
+DUK_INTERNAL_DECL duk_hbufferobject *duk_push_bufferobject_raw(duk_context *ctx, duk_uint_t hobject_flags_and_class, duk_small_int_t prototype_bidx);
+
+#if !defined(DUK_USE_PARANOID_ERRORS)
+DUK_INTERNAL_DECL const char *duk_push_string_readable(duk_context *ctx, duk_idx_t index);
+DUK_INTERNAL_DECL const char *duk_push_string_tval_readable(duk_context *ctx, duk_tval *tv);
+#endif
 
 DUK_INTERNAL_DECL duk_bool_t duk_get_prop_stridx(duk_context *ctx, duk_idx_t obj_index, duk_small_int_t stridx);     /* [] -> [val] */
 DUK_INTERNAL_DECL duk_bool_t duk_put_prop_stridx(duk_context *ctx, duk_idx_t obj_index, duk_small_int_t stridx);     /* [val] -> [] */

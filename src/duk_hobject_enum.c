@@ -24,6 +24,13 @@
 /* must match exactly the number of internal properties inserted to enumerator */
 #define DUK__ENUM_START_INDEX  2
 
+DUK_LOCAL const duk_uint16_t duk__bufferobject_virtual_props[] = {
+	DUK_STRIDX_LENGTH,
+	DUK_STRIDX_BYTE_LENGTH,
+	DUK_STRIDX_BYTE_OFFSET,
+	DUK_STRIDX_BYTES_PER_ELEMENT
+};
+
 /*
  *  Helper to sort array index keys.  The keys are in the enumeration object
  *  entry part, starting from DUK__ENUM_START_INDEX, and the entry part is dense.
@@ -132,7 +139,7 @@ DUK_LOCAL void duk__sort_array_indices(duk_hthread *thr, duk_hobject *h_obj) {
 		                     (long) (p_curr - p_insert), (void *) h_curr));
 
 		DUK_MEMMOVE((void *) (p_insert + 1),
-		            (void *) p_insert,
+		            (const void *) p_insert,
 		            (size_t) ((p_curr - p_insert) * sizeof(duk_hstring *)));
 		*p_insert = h_curr;
 		/* keep val_highest */
@@ -248,7 +255,7 @@ DUK_INTERNAL void duk_hobject_enumerator_create(duk_context *ctx, duk_small_uint
 		 *
 		 * For keys, we simply skip non-string keys which seems to be
 		 * consistent with how e.g. Object.keys() will process proxy trap
-		 * results (ES6 draft, Section 19.1.2.14).
+		 * results (ES6, Section 19.1.2.14).
 		 */
 		if (duk_get_prop_index(ctx, -1, i) && duk_is_string(ctx, -1)) {
 			/* [ ... enum_target res trap_result val ] */
@@ -288,7 +295,7 @@ DUK_INTERNAL void duk_hobject_enumerator_create(duk_context *ctx, duk_small_uint
 		 */
 
 		if (DUK_HOBJECT_HAS_EXOTIC_STRINGOBJ(curr) ||
-		    DUK_HOBJECT_HAS_EXOTIC_BUFFEROBJ(curr)) {
+		    DUK_HOBJECT_IS_BUFFEROBJECT(curr)) {
 			/* String and buffer enumeration behavior is identical now,
 			 * so use shared handler.
 			 */
@@ -298,11 +305,20 @@ DUK_INTERNAL void duk_hobject_enumerator_create(duk_context *ctx, duk_small_uint
 				DUK_ASSERT(h_val != NULL);  /* string objects must not created without internal value */
 				len = (duk_uint_fast32_t) DUK_HSTRING_GET_CHARLEN(h_val);
 			} else {
-				duk_hbuffer *h_val;
-				DUK_ASSERT(DUK_HOBJECT_HAS_EXOTIC_BUFFEROBJ(curr));
-				h_val = duk_hobject_get_internal_value_buffer(thr->heap, curr);
-				DUK_ASSERT(h_val != NULL);  /* buffer objects must not created without internal value */
-				len = (duk_uint_fast32_t) DUK_HBUFFER_GET_SIZE(h_val);
+				duk_hbufferobject *h_bufobj;
+				DUK_ASSERT(DUK_HOBJECT_IS_BUFFEROBJECT(curr));
+				h_bufobj = (duk_hbufferobject *) curr;
+				if (h_bufobj == NULL) {
+					/* Neutered buffer, zero length seems
+					 * like good behavior here.
+					 */
+					len = 0;
+				} else {
+					/* There's intentionally no check for
+					 * current underlying buffer length.
+					 */
+					len = (duk_uint_fast32_t) (h_bufobj->length >> h_bufobj->shift);
+				}
 			}
 
 			for (i = 0; i < len; i++) {
@@ -319,14 +335,28 @@ DUK_INTERNAL void duk_hobject_enumerator_create(duk_context *ctx, duk_small_uint
 				/* [enum_target res] */
 			}
 
-			/* 'length' property is not enumerable, but is included if
-			 * non-enumerable properties are requested.
+			/* 'length' and other virtual properties are not
+			 * enumerable, but are included if non-enumerable
+			 * properties are requested.
 			 */
 
 			if (enum_flags & DUK_ENUM_INCLUDE_NONENUMERABLE) {
-				duk_push_hstring_stridx(ctx, DUK_STRIDX_LENGTH);
-				duk_push_true(ctx);
-				duk_put_prop(ctx, -3);
+				duk_uint_fast32_t n;
+
+				if (DUK_HOBJECT_IS_BUFFEROBJECT(curr)) {
+					n = sizeof(duk__bufferobject_virtual_props) / sizeof(duk_uint16_t);
+				} else {
+					DUK_ASSERT(DUK_HOBJECT_HAS_EXOTIC_STRINGOBJ(curr));
+					DUK_ASSERT(duk__bufferobject_virtual_props[0] == DUK_STRIDX_LENGTH);
+					n = 1;  /* only 'length' */
+				}
+
+				for (i = 0; i < n; i++) {
+					duk_push_hstring_stridx(ctx, duk__bufferobject_virtual_props[i]);
+					duk_push_true(ctx);
+					duk_put_prop(ctx, -3);
+				}
+
 			}
 		} else if (DUK_HOBJECT_HAS_EXOTIC_DUKFUNC(curr)) {
 			if (enum_flags & DUK_ENUM_INCLUDE_NONENUMERABLE) {
@@ -349,7 +379,7 @@ DUK_INTERNAL void duk_hobject_enumerator_create(duk_context *ctx, duk_small_uint
 			duk_tval *tv;
 
 			tv = DUK_HOBJECT_A_GET_VALUE_PTR(thr->heap, curr, i);
-			if (DUK_TVAL_IS_UNDEFINED_UNUSED(tv)) {
+			if (DUK_TVAL_IS_UNUSED(tv)) {
 				continue;
 			}
 			k = duk_heap_string_intern_u32_checked(thr, i);
@@ -389,7 +419,7 @@ DUK_INTERNAL void duk_hobject_enumerator_create(duk_context *ctx, duk_small_uint
 			}
 
 			DUK_ASSERT(DUK_HOBJECT_E_SLOT_IS_ACCESSOR(thr->heap, curr, i) ||
-			           !DUK_TVAL_IS_UNDEFINED_UNUSED(&DUK_HOBJECT_E_GET_VALUE_PTR(thr->heap, curr, i)->v));
+			           !DUK_TVAL_IS_UNUSED(&DUK_HOBJECT_E_GET_VALUE_PTR(thr->heap, curr, i)->v));
 
 			duk_push_hstring(ctx, k);
 			duk_push_true(ctx);
@@ -506,7 +536,7 @@ DUK_INTERNAL duk_bool_t duk_hobject_enumerator_next(duk_context *ctx, duk_bool_t
 		k = DUK_HOBJECT_E_GET_KEY(thr->heap, e, idx);
 		DUK_ASSERT(k != NULL);
 		DUK_ASSERT(!DUK_HOBJECT_E_SLOT_IS_ACCESSOR(thr->heap, e, idx));
-		DUK_ASSERT(!DUK_TVAL_IS_UNDEFINED_UNUSED(&DUK_HOBJECT_E_GET_VALUE(thr->heap, e, idx).v));
+		DUK_ASSERT(!DUK_TVAL_IS_UNUSED(&DUK_HOBJECT_E_GET_VALUE(thr->heap, e, idx).v));
 
 		idx++;
 

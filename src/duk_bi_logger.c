@@ -137,6 +137,7 @@ DUK_INTERNAL duk_ret_t duk_bi_logger_prototype_log_shared(duk_context *ctx) {
 	duk_small_int_t rc;
 
 	DUK_ASSERT(entry_lev >= 0 && entry_lev <= 5);
+	DUK_UNREF(thr);
 
 	/* XXX: sanitize to printable (and maybe ASCII) */
 	/* XXX: better multiline */
@@ -174,7 +175,7 @@ DUK_INTERNAL duk_ret_t duk_bi_logger_prototype_log_shared(duk_context *ctx) {
 	}
 	/* log level could be popped but that's not necessary */
 
-	now = duk_bi_date_get_now(ctx);
+	now = DUK_USE_DATE_GET_NOW(ctx);
 	duk_bi_date_format_timeval(now, date_buf);
 	date_len = DUK_STRLEN((const char *) date_buf);
 
@@ -230,48 +231,30 @@ DUK_INTERNAL duk_ret_t duk_bi_logger_prototype_log_shared(duk_context *ctx) {
 	 *  Pass 2
 	 */
 
-	if (tot_len <= DUK_BI_LOGGER_SHORT_MSG_LIMIT) {
-		duk_hbuffer_dynamic *h_buf;
+	/* XXX: There used to be a shared log buffer here, but it was removed
+	 * when dynamic buffer spare was removed.  The problem with using
+	 * bufwriter is that, without the spare, the buffer gets passed on
+	 * as an argument to the raw() call so it'd need to be resized
+	 * (reallocated) anyway.  If raw() call convention is changed, this
+	 * could be made more efficient.
+	 */
 
-		DUK_DDD(DUK_DDDPRINT("reuse existing small log message buffer, tot_len %ld", (long) tot_len));
-
-		/* We can assert for all buffer properties because user code
-		 * never has access to heap->log_buffer.
-		 */
-
-		DUK_ASSERT(thr != NULL);
-		DUK_ASSERT(thr->heap != NULL);
-		h_buf = thr->heap->log_buffer;
-		DUK_ASSERT(h_buf != NULL);
-		DUK_ASSERT(DUK_HBUFFER_HAS_DYNAMIC((duk_hbuffer *) h_buf));
-		DUK_ASSERT(DUK_HBUFFER_DYNAMIC_GET_ALLOC_SIZE(h_buf) == DUK_BI_LOGGER_SHORT_MSG_LIMIT);
-
-		/* Set buffer 'visible size' to actual message length and
-		 * push it to the stack.
-		 */
-
-		DUK_HBUFFER_SET_SIZE((duk_hbuffer *) h_buf, tot_len);
-		duk_push_hbuffer(ctx, (duk_hbuffer *) h_buf);
-		buf = (duk_uint8_t *) DUK_HBUFFER_DYNAMIC_GET_DATA_PTR(thr->heap, h_buf);
-	} else {
-		DUK_DDD(DUK_DDDPRINT("use a one-off large log message buffer, tot_len %ld", (long) tot_len));
-		buf = (duk_uint8_t *) duk_push_fixed_buffer(ctx, tot_len);
-	}
+	buf = (duk_uint8_t *) duk_push_fixed_buffer(ctx, tot_len);
 	DUK_ASSERT(buf != NULL);
 	p = buf;
 
-	DUK_MEMCPY((void *) p, (void *) date_buf, date_len);
+	DUK_MEMCPY((void *) p, (const void *) date_buf, (size_t) date_len);
 	p += date_len;
 	*p++ = (duk_uint8_t) DUK_ASC_SPACE;
 
 	q = duk__log_level_strings + (entry_lev * 3);
-	DUK_MEMCPY((void *) p, (void *) q, (duk_size_t) 3);
+	DUK_MEMCPY((void *) p, (const void *) q, (size_t) 3);
 	p += 3;
 
 	*p++ = (duk_uint8_t) DUK_ASC_SPACE;
 
 	arg_str = (const duk_uint8_t *) duk_get_lstring(ctx, -2, &arg_len);
-	DUK_MEMCPY((void *) p, (const void *) arg_str, arg_len);
+	DUK_MEMCPY((void *) p, (const void *) arg_str, (size_t) arg_len);
 	p += arg_len;
 
 	*p++ = (duk_uint8_t) DUK_ASC_COLON;
@@ -281,7 +264,7 @@ DUK_INTERNAL duk_ret_t duk_bi_logger_prototype_log_shared(duk_context *ctx) {
 
 		arg_str = (const duk_uint8_t *) duk_get_lstring(ctx, i, &arg_len);
 		DUK_ASSERT(arg_str != NULL);
-		DUK_MEMCPY((void *) p, (const void *) arg_str, arg_len);
+		DUK_MEMCPY((void *) p, (const void *) arg_str, (size_t) arg_len);
 		p += arg_len;
 	}
 	DUK_ASSERT(buf + tot_len == p);

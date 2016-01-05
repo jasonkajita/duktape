@@ -107,12 +107,17 @@ DUK_LOCAL void duk__refcount_finalize_hobject(duk_hthread *thr, duk_hobject *h) 
 		duk_hnativefunction *f = (duk_hnativefunction *) h;
 		DUK_UNREF(f);
 		/* nothing to finalize */
+	} else if (DUK_HOBJECT_IS_BUFFEROBJECT(h)) {
+		duk_hbufferobject *b = (duk_hbufferobject *) h;
+		if (b->buf) {
+			duk_heaphdr_decref(thr, (duk_heaphdr *) b->buf);
+		}
 	} else if (DUK_HOBJECT_IS_THREAD(h)) {
 		duk_hthread *t = (duk_hthread *) h;
 		duk_tval *tv;
 
 		tv = t->valstack;
-		while (tv < t->valstack_end) {
+		while (tv < t->valstack_top) {
 			duk_tval_decref(thr, tv);
 			tv++;
 		}
@@ -157,6 +162,60 @@ DUK_INTERNAL void duk_heaphdr_refcount_finalize(duk_hthread *thr, duk_heaphdr *h
 		DUK_UNREACHABLE();
 	}
 }
+
+#if defined(DUK_USE_REFZERO_FINALIZER_TORTURE)
+DUK_LOCAL duk_ret_t duk__refcount_fake_finalizer(duk_context *ctx) {
+	DUK_UNREF(ctx);
+	DUK_D(DUK_DPRINT("fake refcount torture finalizer executed"));
+#if 0
+	DUK_DD(DUK_DDPRINT("fake torture finalizer for: %!T", duk_get_tval(ctx, 0)));
+#endif
+	/* Require a lot of stack to force a value stack grow/shrink. */
+	duk_require_stack(ctx, 100000);
+
+	/* XXX: do something to force a callstack grow/shrink, perhaps
+	 * just a manual forced resize?
+	 */
+	return 0;
+}
+
+DUK_LOCAL void duk__refcount_run_torture_finalizer(duk_hthread *thr, duk_hobject *obj) {
+	duk_context *ctx;
+	duk_int_t rc;
+
+	DUK_ASSERT(thr != NULL);
+	DUK_ASSERT(obj != NULL);
+	ctx = (duk_context *) thr;
+
+	/* Avoid fake finalization for the duk__refcount_fake_finalizer function
+	 * itself, otherwise we're in infinite recursion.
+	 */
+	if (DUK_HOBJECT_HAS_NATIVEFUNCTION(obj)) {
+		if (((duk_hnativefunction *) obj)->func == duk__refcount_fake_finalizer) {
+			DUK_DD(DUK_DDPRINT("avoid fake torture finalizer for duk__refcount_fake_finalizer itself"));
+			return;
+		}
+	}
+	/* Avoid fake finalization when callstack limit has been reached.
+	 * Otherwise a callstack limit error will be created, then refzero'ed,
+	 * and we're in an infinite loop.
+	 */
+	if (thr->heap->call_recursion_depth >= thr->heap->call_recursion_limit ||
+	    thr->callstack_size + 2 * DUK_CALLSTACK_GROW_STEP >= thr->callstack_max /*approximate*/) {
+		DUK_D(DUK_DPRINT("call recursion depth reached, avoid fake torture finalizer"));
+		return;
+	}
+
+	/* Run fake finalizer.  Avoid creating new refzero queue entries
+	 * so that we are not forced into a forever loop.
+	 */
+	duk_push_c_function(ctx, duk__refcount_fake_finalizer, 1 /*nargs*/);
+	duk_push_hobject(ctx, obj);
+	rc = duk_pcall(ctx, 1);
+	DUK_UNREF(rc);  /* ignored */
+	duk_pop(ctx);
+}
+#endif  /* DUK_USE_REFZERO_FINALIZER_TORTURE */
 
 /*
  *  Refcount memory freeing loop.
@@ -207,6 +266,20 @@ DUK_LOCAL void duk__refzero_free_pending(duk_hthread *thr) {
 		DUK_ASSERT(DUK_HEAPHDR_GET_PREV(heap, h1) == NULL);
 		DUK_ASSERT(DUK_HEAPHDR_GET_TYPE(h1) == DUK_HTYPE_OBJECT);  /* currently, always the case */
 
+#if defined(DUK_USE_REFZERO_FINALIZER_TORTURE)
+		/* Torture option to shake out finalizer side effect issues:
+		 * make a bogus function call for every finalizable object,
+		 * essentially simulating the case where everything has a
+		 * finalizer.
+		 */
+		DUK_DD(DUK_DDPRINT("refzero torture enabled, fake finalizer"));
+		DUK_ASSERT(DUK_HEAPHDR_GET_REFCOUNT(h1) == 0);
+		DUK_HEAPHDR_PREINC_REFCOUNT(h1);  /* bump refcount to prevent refzero during finalizer processing */
+		duk__refcount_run_torture_finalizer(thr, obj);  /* must never longjmp */
+		DUK_HEAPHDR_PREDEC_REFCOUNT(h1);  /* remove artificial bump */
+		DUK_ASSERT_DISABLE(h1->h_refcount >= 0);  /* refcount is unsigned, so always true */
+#endif
+
 		/*
 		 *  Finalizer check.
 		 *
@@ -218,10 +291,9 @@ DUK_LOCAL void duk__refzero_free_pending(duk_hthread *thr) {
 		 *  objects and must be safe (not throw any errors, ever).
 		 */
 
-		/* XXX: If object has FINALIZED, it was finalized by mark-and-sweep on
-		 * its previous run.  Any point in running finalizer again here?  If
-		 * finalization semantics is changed so that finalizer is only run once,
-		 * checking for FINALIZED would happen here.
+		/* An object may have FINALIZED here if it was finalized by mark-and-sweep
+		 * on a previous run and refcount then decreased to zero.  We won't run the
+		 * finalizer again here.
 		 */
 
 		/* A finalizer is looked up from the object and up its prototype chain
@@ -234,6 +306,7 @@ DUK_LOCAL void duk__refzero_free_pending(duk_hthread *thr) {
 			DUK_HEAPHDR_PREINC_REFCOUNT(h1);  /* bump refcount to prevent refzero during finalizer processing */
 
 			duk_hobject_run_finalizer(thr, obj);  /* must never longjmp */
+			DUK_ASSERT(DUK_HEAPHDR_HAS_FINALIZED(h1));  /* duk_hobject_run_finalizer() sets */
 
 			DUK_HEAPHDR_PREDEC_REFCOUNT(h1);  /* remove artificial bump */
 			DUK_ASSERT_DISABLE(h1->h_refcount >= 0);  /* refcount is unsigned, so always true */
@@ -274,6 +347,9 @@ DUK_LOCAL void duk__refzero_free_pending(duk_hthread *thr) {
 		if (rescued) {
 			/* yes -> move back to heap allocated */
 			DUK_DD(DUK_DDPRINT("object rescued during refcount finalization: %p", (void *) h1));
+			DUK_ASSERT(!DUK_HEAPHDR_HAS_FINALIZABLE(h1));
+			DUK_ASSERT(DUK_HEAPHDR_HAS_FINALIZED(h1));
+			DUK_HEAPHDR_CLEAR_FINALIZED(h1);
 			DUK_HEAPHDR_SET_PREV(heap, h1, NULL);
 			DUK_HEAPHDR_SET_NEXT(heap, h1, heap->heap_allocated);
 			heap->heap_allocated = h1;
@@ -327,22 +403,25 @@ DUK_INTERNAL void duk_heaphdr_refzero(duk_hthread *thr, duk_heaphdr *h) {
 	heap = thr->heap;
 	DUK_DDD(DUK_DDDPRINT("refzero %p: %!O", (void *) h, (duk_heaphdr *) h));
 
-#ifdef DUK_USE_MARK_AND_SWEEP
 	/*
 	 *  If mark-and-sweep is running, don't process 'refzero' situations at all.
 	 *  They may happen because mark-and-sweep needs to finalize refcounts for
 	 *  each object it sweeps.  Otherwise the target objects of swept objects
 	 *  would have incorrect refcounts.
 	 *
+	 *  This check must be enabled also when mark-and-sweep support has been
+	 *  disabled: the flag is also used in heap destruction when running
+	 *  finalizers for remaining objects, and the flag prevents objects from
+	 *  being moved around in heap linked lists.
+	 *
 	 *  Note: mark-and-sweep could use a separate decref handler to avoid coming
 	 *  here at all.  However, mark-and-sweep may also call finalizers, which
 	 *  can do arbitrary operations and would use this decref variant anyway.
 	 */
-	if (DUK_HEAP_HAS_MARKANDSWEEP_RUNNING(heap)) {
+	if (DUK_UNLIKELY(DUK_HEAP_HAS_MARKANDSWEEP_RUNNING(heap))) {
 		DUK_DDD(DUK_DDDPRINT("refzero handling suppressed when mark-and-sweep running, object: %p", (void *) h));
 		return;
 	}
-#endif
 
 	switch ((duk_small_int_t) DUK_HEAPHDR_GET_TYPE(h)) {
 	case DUK_HTYPE_STRING:

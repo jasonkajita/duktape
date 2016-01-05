@@ -38,21 +38,20 @@
 #define DUK_HOBJECT_FLAG_BOUND                 DUK_HEAPHDR_USER_FLAG(2)   /* object established using Function.prototype.bind() */
 #define DUK_HOBJECT_FLAG_COMPILEDFUNCTION      DUK_HEAPHDR_USER_FLAG(4)   /* object is a compiled function (duk_hcompiledfunction) */
 #define DUK_HOBJECT_FLAG_NATIVEFUNCTION        DUK_HEAPHDR_USER_FLAG(5)   /* object is a native function (duk_hnativefunction) */
-#define DUK_HOBJECT_FLAG_THREAD                DUK_HEAPHDR_USER_FLAG(6)   /* object is a thread (duk_hthread) */
-#define DUK_HOBJECT_FLAG_ARRAY_PART            DUK_HEAPHDR_USER_FLAG(7)   /* object has an array part (a_size may still be 0) */
-#define DUK_HOBJECT_FLAG_STRICT                DUK_HEAPHDR_USER_FLAG(8)   /* function: function object is strict */
-#define DUK_HOBJECT_FLAG_NOTAIL                DUK_HEAPHDR_USER_FLAG(9)   /* function: function must not be tailcalled */
-#define DUK_HOBJECT_FLAG_NEWENV                DUK_HEAPHDR_USER_FLAG(10)  /* function: create new environment when called (see duk_hcompiledfunction) */
-#define DUK_HOBJECT_FLAG_NAMEBINDING           DUK_HEAPHDR_USER_FLAG(11)  /* function: create binding for func name (function templates only, used for named function expressions) */
-#define DUK_HOBJECT_FLAG_CREATEARGS            DUK_HEAPHDR_USER_FLAG(12)  /* function: create an arguments object on function call */
-#define DUK_HOBJECT_FLAG_ENVRECCLOSED          DUK_HEAPHDR_USER_FLAG(13)  /* envrec: (declarative) record is closed */
-#define DUK_HOBJECT_FLAG_EXOTIC_ARRAY          DUK_HEAPHDR_USER_FLAG(14)  /* 'Array' object, array length and index exotic behavior */
-#define DUK_HOBJECT_FLAG_EXOTIC_STRINGOBJ      DUK_HEAPHDR_USER_FLAG(15)  /* 'String' object, array index exotic behavior */
-#define DUK_HOBJECT_FLAG_EXOTIC_ARGUMENTS      DUK_HEAPHDR_USER_FLAG(16)  /* 'Arguments' object and has arguments exotic behavior (non-strict callee) */
-#define DUK_HOBJECT_FLAG_EXOTIC_DUKFUNC        DUK_HEAPHDR_USER_FLAG(17)  /* Duktape/C (nativefunction) object, exotic 'length' */
-#define DUK_HOBJECT_FLAG_EXOTIC_BUFFEROBJ      DUK_HEAPHDR_USER_FLAG(18)  /* 'Buffer' object, array index exotic behavior, virtual 'length' */
+#define DUK_HOBJECT_FLAG_BUFFEROBJECT          DUK_HEAPHDR_USER_FLAG(6)   /* object is a buffer object (duk_hbufferobject) (always exotic) */
+#define DUK_HOBJECT_FLAG_THREAD                DUK_HEAPHDR_USER_FLAG(7)   /* object is a thread (duk_hthread) */
+#define DUK_HOBJECT_FLAG_ARRAY_PART            DUK_HEAPHDR_USER_FLAG(8)   /* object has an array part (a_size may still be 0) */
+#define DUK_HOBJECT_FLAG_STRICT                DUK_HEAPHDR_USER_FLAG(9)   /* function: function object is strict */
+#define DUK_HOBJECT_FLAG_NOTAIL                DUK_HEAPHDR_USER_FLAG(10)  /* function: function must not be tail called */
+#define DUK_HOBJECT_FLAG_NEWENV                DUK_HEAPHDR_USER_FLAG(11)  /* function: create new environment when called (see duk_hcompiledfunction) */
+#define DUK_HOBJECT_FLAG_NAMEBINDING           DUK_HEAPHDR_USER_FLAG(12)  /* function: create binding for func name (function templates only, used for named function expressions) */
+#define DUK_HOBJECT_FLAG_CREATEARGS            DUK_HEAPHDR_USER_FLAG(13)  /* function: create an arguments object on function call */
+#define DUK_HOBJECT_FLAG_ENVRECCLOSED          DUK_HEAPHDR_USER_FLAG(14)  /* envrec: (declarative) record is closed */
+#define DUK_HOBJECT_FLAG_EXOTIC_ARRAY          DUK_HEAPHDR_USER_FLAG(15)  /* 'Array' object, array length and index exotic behavior */
+#define DUK_HOBJECT_FLAG_EXOTIC_STRINGOBJ      DUK_HEAPHDR_USER_FLAG(16)  /* 'String' object, array index exotic behavior */
+#define DUK_HOBJECT_FLAG_EXOTIC_ARGUMENTS      DUK_HEAPHDR_USER_FLAG(17)  /* 'Arguments' object and has arguments exotic behavior (non-strict callee) */
+#define DUK_HOBJECT_FLAG_EXOTIC_DUKFUNC        DUK_HEAPHDR_USER_FLAG(18)  /* Duktape/C (nativefunction) object, exotic 'length' */
 #define DUK_HOBJECT_FLAG_EXOTIC_PROXYOBJ       DUK_HEAPHDR_USER_FLAG(19)  /* 'Proxy' object */
-/* bit 20 unused */
 
 #define DUK_HOBJECT_FLAG_CLASS_BASE            DUK_HEAPHDR_USER_FLAG_NUMBER(21)
 #define DUK_HOBJECT_FLAG_CLASS_BITS            5
@@ -61,6 +60,9 @@
 	DUK_HEAPHDR_GET_FLAG_RANGE(&(h)->hdr, DUK_HOBJECT_FLAG_CLASS_BASE, DUK_HOBJECT_FLAG_CLASS_BITS)
 #define DUK_HOBJECT_SET_CLASS_NUMBER(h,v)      \
 	DUK_HEAPHDR_SET_FLAG_RANGE(&(h)->hdr, DUK_HOBJECT_FLAG_CLASS_BASE, DUK_HOBJECT_FLAG_CLASS_BITS, (v))
+
+#define DUK_HOBJECT_GET_CLASS_MASK(h)          \
+	(1UL << DUK_HEAPHDR_GET_FLAG_RANGE(&(h)->hdr, DUK_HOBJECT_FLAG_CLASS_BASE, DUK_HOBJECT_FLAG_CLASS_BITS))
 
 /* Macro for creating flag initializer from a class number.
  * Unsigned type cast is needed to avoid warnings about coercing
@@ -86,9 +88,68 @@
 #define DUK_HOBJECT_CLASS_GLOBAL               13
 #define DUK_HOBJECT_CLASS_OBJENV               14  /* custom */
 #define DUK_HOBJECT_CLASS_DECENV               15  /* custom */
-#define DUK_HOBJECT_CLASS_BUFFER               16  /* custom */
+#define DUK_HOBJECT_CLASS_BUFFER               16  /* custom; implies DUK_HOBJECT_IS_BUFFEROBJECT */
 #define DUK_HOBJECT_CLASS_POINTER              17  /* custom */
-#define DUK_HOBJECT_CLASS_THREAD               18  /* custom */
+#define DUK_HOBJECT_CLASS_THREAD               18  /* custom; implies DUK_HOBJECT_IS_THREAD */
+#define DUK_HOBJECT_CLASS_ARRAYBUFFER          19  /* implies DUK_HOBJECT_IS_BUFFEROBJECT */
+#define DUK_HOBJECT_CLASS_DATAVIEW             20
+#define DUK_HOBJECT_CLASS_INT8ARRAY            21
+#define DUK_HOBJECT_CLASS_UINT8ARRAY           22
+#define DUK_HOBJECT_CLASS_UINT8CLAMPEDARRAY    23
+#define DUK_HOBJECT_CLASS_INT16ARRAY           24
+#define DUK_HOBJECT_CLASS_UINT16ARRAY          25
+#define DUK_HOBJECT_CLASS_INT32ARRAY           26
+#define DUK_HOBJECT_CLASS_UINT32ARRAY          27
+#define DUK_HOBJECT_CLASS_FLOAT32ARRAY         28
+#define DUK_HOBJECT_CLASS_FLOAT64ARRAY         29
+#define DUK_HOBJECT_CLASS_MAX                  29
+
+/* class masks */
+#define DUK_HOBJECT_CMASK_ALL                  ((1UL << (DUK_HOBJECT_CLASS_MAX + 1)) - 1UL)
+#define DUK_HOBJECT_CMASK_UNUSED               (1UL << DUK_HOBJECT_CLASS_UNUSED)
+#define DUK_HOBJECT_CMASK_ARGUMENTS            (1UL << DUK_HOBJECT_CLASS_ARGUMENTS)
+#define DUK_HOBJECT_CMASK_ARRAY                (1UL << DUK_HOBJECT_CLASS_ARRAY)
+#define DUK_HOBJECT_CMASK_BOOLEAN              (1UL << DUK_HOBJECT_CLASS_BOOLEAN)
+#define DUK_HOBJECT_CMASK_DATE                 (1UL << DUK_HOBJECT_CLASS_DATE)
+#define DUK_HOBJECT_CMASK_ERROR                (1UL << DUK_HOBJECT_CLASS_ERROR)
+#define DUK_HOBJECT_CMASK_FUNCTION             (1UL << DUK_HOBJECT_CLASS_FUNCTION)
+#define DUK_HOBJECT_CMASK_JSON                 (1UL << DUK_HOBJECT_CLASS_JSON)
+#define DUK_HOBJECT_CMASK_MATH                 (1UL << DUK_HOBJECT_CLASS_MATH)
+#define DUK_HOBJECT_CMASK_NUMBER               (1UL << DUK_HOBJECT_CLASS_NUMBER)
+#define DUK_HOBJECT_CMASK_OBJECT               (1UL << DUK_HOBJECT_CLASS_OBJECT)
+#define DUK_HOBJECT_CMASK_REGEXP               (1UL << DUK_HOBJECT_CLASS_REGEXP)
+#define DUK_HOBJECT_CMASK_STRING               (1UL << DUK_HOBJECT_CLASS_STRING)
+#define DUK_HOBJECT_CMASK_GLOBAL               (1UL << DUK_HOBJECT_CLASS_GLOBAL)
+#define DUK_HOBJECT_CMASK_OBJENV               (1UL << DUK_HOBJECT_CLASS_OBJENV)
+#define DUK_HOBJECT_CMASK_DECENV               (1UL << DUK_HOBJECT_CLASS_DECENV)
+#define DUK_HOBJECT_CMASK_BUFFER               (1UL << DUK_HOBJECT_CLASS_BUFFER)
+#define DUK_HOBJECT_CMASK_POINTER              (1UL << DUK_HOBJECT_CLASS_POINTER)
+#define DUK_HOBJECT_CMASK_THREAD               (1UL << DUK_HOBJECT_CLASS_THREAD)
+#define DUK_HOBJECT_CMASK_ARRAYBUFFER          (1UL << DUK_HOBJECT_CLASS_ARRAYBUFFER)
+#define DUK_HOBJECT_CMASK_DATAVIEW             (1UL << DUK_HOBJECT_CLASS_DATAVIEW)
+#define DUK_HOBJECT_CMASK_INT8ARRAY            (1UL << DUK_HOBJECT_CLASS_INT8ARRAY)
+#define DUK_HOBJECT_CMASK_UINT8ARRAY           (1UL << DUK_HOBJECT_CLASS_UINT8ARRAY)
+#define DUK_HOBJECT_CMASK_UINT8CLAMPEDARRAY    (1UL << DUK_HOBJECT_CLASS_UINT8CLAMPEDARRAY)
+#define DUK_HOBJECT_CMASK_INT16ARRAY           (1UL << DUK_HOBJECT_CLASS_INT16ARRAY)
+#define DUK_HOBJECT_CMASK_UINT16ARRAY          (1UL << DUK_HOBJECT_CLASS_UINT16ARRAY)
+#define DUK_HOBJECT_CMASK_INT32ARRAY           (1UL << DUK_HOBJECT_CLASS_INT32ARRAY)
+#define DUK_HOBJECT_CMASK_UINT32ARRAY          (1UL << DUK_HOBJECT_CLASS_UINT32ARRAY)
+#define DUK_HOBJECT_CMASK_FLOAT32ARRAY         (1UL << DUK_HOBJECT_CLASS_FLOAT32ARRAY)
+#define DUK_HOBJECT_CMASK_FLOAT64ARRAY         (1UL << DUK_HOBJECT_CLASS_FLOAT64ARRAY)
+
+#define DUK_HOBJECT_CMASK_ALL_BUFFEROBJECTS \
+	(DUK_HOBJECT_CMASK_BUFFER | \
+	 DUK_HOBJECT_CMASK_ARRAYBUFFER | \
+	 DUK_HOBJECT_CMASK_DATAVIEW | \
+	 DUK_HOBJECT_CMASK_INT8ARRAY | \
+	 DUK_HOBJECT_CMASK_UINT8ARRAY | \
+	 DUK_HOBJECT_CMASK_UINT8CLAMPEDARRAY | \
+	 DUK_HOBJECT_CMASK_INT16ARRAY | \
+	 DUK_HOBJECT_CMASK_UINT16ARRAY | \
+	 DUK_HOBJECT_CMASK_INT32ARRAY | \
+	 DUK_HOBJECT_CMASK_UINT32ARRAY | \
+	 DUK_HOBJECT_CMASK_FLOAT32ARRAY | \
+	 DUK_HOBJECT_CMASK_FLOAT64ARRAY)
 
 #define DUK_HOBJECT_IS_OBJENV(h)               (DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_OBJENV)
 #define DUK_HOBJECT_IS_DECENV(h)               (DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_DECENV)
@@ -96,6 +157,7 @@
 #define DUK_HOBJECT_IS_ARRAY(h)                (DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_ARRAY)
 #define DUK_HOBJECT_IS_COMPILEDFUNCTION(h)     DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_COMPILEDFUNCTION)
 #define DUK_HOBJECT_IS_NATIVEFUNCTION(h)       DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_NATIVEFUNCTION)
+#define DUK_HOBJECT_IS_BUFFEROBJECT(h)         DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_BUFFEROBJECT)
 #define DUK_HOBJECT_IS_THREAD(h)               DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_THREAD)
 
 #define DUK_HOBJECT_IS_NONBOUND_FUNCTION(h)    DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, \
@@ -117,7 +179,7 @@
                                                 DUK_HOBJECT_FLAG_EXOTIC_ARGUMENTS | \
                                                 DUK_HOBJECT_FLAG_EXOTIC_STRINGOBJ | \
                                                 DUK_HOBJECT_FLAG_EXOTIC_DUKFUNC | \
-                                                DUK_HOBJECT_FLAG_EXOTIC_BUFFEROBJ | \
+                                                DUK_HOBJECT_FLAG_BUFFEROBJECT | \
                                                 DUK_HOBJECT_FLAG_EXOTIC_PROXYOBJ)
 
 #define DUK_HOBJECT_HAS_EXOTIC_BEHAVIOR(h)     DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_EXOTIC_BEHAVIOR_FLAGS)
@@ -127,6 +189,7 @@
 #define DUK_HOBJECT_HAS_BOUND(h)               DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_BOUND)
 #define DUK_HOBJECT_HAS_COMPILEDFUNCTION(h)    DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_COMPILEDFUNCTION)
 #define DUK_HOBJECT_HAS_NATIVEFUNCTION(h)      DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_NATIVEFUNCTION)
+#define DUK_HOBJECT_HAS_BUFFEROBJECT(h)        DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_BUFFEROBJECT)
 #define DUK_HOBJECT_HAS_THREAD(h)              DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_THREAD)
 #define DUK_HOBJECT_HAS_ARRAY_PART(h)          DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_ARRAY_PART)
 #define DUK_HOBJECT_HAS_STRICT(h)              DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_STRICT)
@@ -139,7 +202,6 @@
 #define DUK_HOBJECT_HAS_EXOTIC_STRINGOBJ(h)    DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_STRINGOBJ)
 #define DUK_HOBJECT_HAS_EXOTIC_ARGUMENTS(h)    DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_ARGUMENTS)
 #define DUK_HOBJECT_HAS_EXOTIC_DUKFUNC(h)      DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_DUKFUNC)
-#define DUK_HOBJECT_HAS_EXOTIC_BUFFEROBJ(h)    DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_BUFFEROBJ)
 #define DUK_HOBJECT_HAS_EXOTIC_PROXYOBJ(h)     DUK_HEAPHDR_CHECK_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_PROXYOBJ)
 
 #define DUK_HOBJECT_SET_EXTENSIBLE(h)          DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXTENSIBLE)
@@ -147,6 +209,7 @@
 #define DUK_HOBJECT_SET_BOUND(h)               DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_BOUND)
 #define DUK_HOBJECT_SET_COMPILEDFUNCTION(h)    DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_COMPILEDFUNCTION)
 #define DUK_HOBJECT_SET_NATIVEFUNCTION(h)      DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_NATIVEFUNCTION)
+#define DUK_HOBJECT_SET_BUFFEROBJECT(h)        DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_BUFFEROBJECT)
 #define DUK_HOBJECT_SET_THREAD(h)              DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_THREAD)
 #define DUK_HOBJECT_SET_ARRAY_PART(h)          DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_ARRAY_PART)
 #define DUK_HOBJECT_SET_STRICT(h)              DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_STRICT)
@@ -159,7 +222,6 @@
 #define DUK_HOBJECT_SET_EXOTIC_STRINGOBJ(h)    DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_STRINGOBJ)
 #define DUK_HOBJECT_SET_EXOTIC_ARGUMENTS(h)    DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_ARGUMENTS)
 #define DUK_HOBJECT_SET_EXOTIC_DUKFUNC(h)      DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_DUKFUNC)
-#define DUK_HOBJECT_SET_EXOTIC_BUFFEROBJ(h)    DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_BUFFEROBJ)
 #define DUK_HOBJECT_SET_EXOTIC_PROXYOBJ(h)     DUK_HEAPHDR_SET_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_PROXYOBJ)
 
 #define DUK_HOBJECT_CLEAR_EXTENSIBLE(h)        DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXTENSIBLE)
@@ -167,6 +229,7 @@
 #define DUK_HOBJECT_CLEAR_BOUND(h)             DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_BOUND)
 #define DUK_HOBJECT_CLEAR_COMPILEDFUNCTION(h)  DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_COMPILEDFUNCTION)
 #define DUK_HOBJECT_CLEAR_NATIVEFUNCTION(h)    DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_NATIVEFUNCTION)
+#define DUK_HOBJECT_CLEAR_BUFFEROBJECT(h)      DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_BUFFEROBJECT)
 #define DUK_HOBJECT_CLEAR_THREAD(h)            DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_THREAD)
 #define DUK_HOBJECT_CLEAR_ARRAY_PART(h)        DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_ARRAY_PART)
 #define DUK_HOBJECT_CLEAR_STRICT(h)            DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_STRICT)
@@ -179,7 +242,6 @@
 #define DUK_HOBJECT_CLEAR_EXOTIC_STRINGOBJ(h)  DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_STRINGOBJ)
 #define DUK_HOBJECT_CLEAR_EXOTIC_ARGUMENTS(h)  DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_ARGUMENTS)
 #define DUK_HOBJECT_CLEAR_EXOTIC_DUKFUNC(h)    DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_DUKFUNC)
-#define DUK_HOBJECT_CLEAR_EXOTIC_BUFFEROBJ(h)  DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_BUFFEROBJ)
 #define DUK_HOBJECT_CLEAR_EXOTIC_PROXYOBJ(h)   DUK_HEAPHDR_CLEAR_FLAG_BITS(&(h)->hdr, DUK_HOBJECT_FLAG_EXOTIC_PROXYOBJ)
 
 /* flags used for property attributes in duk_propdesc and packed flags */
@@ -213,6 +275,31 @@
                                                  DUK_PROPDESC_FLAG_CONFIGURABLE)
 
 /*
+ *  Macro for object validity check
+ *
+ *  Assert for currently guaranteed relations between flags, for instance.
+ */
+
+#define DUK_ASSERT_HOBJECT_VALID(h) do { \
+		DUK_ASSERT((h) != NULL); \
+		DUK_ASSERT(!DUK_HOBJECT_IS_CALLABLE((h)) || \
+		           DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_FUNCTION); \
+		DUK_ASSERT(!DUK_HOBJECT_IS_BUFFEROBJECT((h)) || \
+		           (DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_BUFFER || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_ARRAYBUFFER || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_DATAVIEW || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_INT8ARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_UINT8ARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_UINT8CLAMPEDARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_INT16ARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_UINT16ARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_INT32ARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_UINT32ARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_FLOAT32ARRAY || \
+		            DUK_HOBJECT_GET_CLASS_NUMBER((h)) == DUK_HOBJECT_CLASS_FLOAT64ARRAY)); \
+	} while (0)
+
+/*
  *  Macros to access the 'props' allocation.
  */
 
@@ -226,32 +313,32 @@
 #define DUK_HOBJECT_GET_PROPS(heap,h) \
 	((h)->props)
 #define DUK_HOBJECT_SET_PROPS(heap,h,x) do { \
-		(h)->props = (x); \
+		(h)->props = (duk_uint8_t *) (x); \
 	} while (0)
 #endif
 
 #if defined(DUK_USE_HOBJECT_LAYOUT_1)
 /* LAYOUT 1 */
 #define DUK_HOBJECT_E_GET_KEY_BASE(heap,h) \
-	((duk_hstring **) ( \
+	((duk_hstring **) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) \
 	))
 #define DUK_HOBJECT_E_GET_VALUE_BASE(heap,h) \
-	((duk_propvalue *) ( \
+	((duk_propvalue *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * sizeof(duk_hstring *) \
 	))
 #define DUK_HOBJECT_E_GET_FLAGS_BASE(heap,h) \
-	((duk_uint8_t *) ( \
+	((duk_uint8_t *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_hstring *) + sizeof(duk_propvalue)) \
 	))
 #define DUK_HOBJECT_A_GET_BASE(heap,h) \
-	((duk_tval *) ( \
+	((duk_tval *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_hstring *) + sizeof(duk_propvalue) + sizeof(duk_uint8_t)) \
 	))
 #define DUK_HOBJECT_H_GET_BASE(heap,h) \
-	((duk_uint32_t *) ( \
+	((duk_uint32_t *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_hstring *) + sizeof(duk_propvalue) + sizeof(duk_uint8_t)) + \
 			DUK_HOBJECT_GET_ASIZE((h)) * sizeof(duk_tval) \
@@ -263,42 +350,44 @@
 		(n_hash) * sizeof(duk_uint32_t) \
 	)
 #define DUK_HOBJECT_P_SET_REALLOC_PTRS(p_base,set_e_k,set_e_pv,set_e_f,set_a,set_h,n_ent,n_arr,n_hash)  do { \
-		(set_e_k) = (duk_hstring **) (p_base); \
-		(set_e_pv) = (duk_propvalue *) ((set_e_k) + (n_ent)); \
-		(set_e_f) = (duk_uint8_t *) ((set_e_pv) + (n_ent)); \
-		(set_a) = (duk_tval *) ((set_e_f) + (n_ent)); \
-		(set_h) = (duk_uint32_t *) ((set_a) + (n_arr)); \
+		(set_e_k) = (duk_hstring **) (void *) (p_base); \
+		(set_e_pv) = (duk_propvalue *) (void *) ((set_e_k) + (n_ent)); \
+		(set_e_f) = (duk_uint8_t *) (void *) ((set_e_pv) + (n_ent)); \
+		(set_a) = (duk_tval *) (void *) ((set_e_f) + (n_ent)); \
+		(set_h) = (duk_uint32_t *) (void *) ((set_a) + (n_arr)); \
 	} while (0)
 #elif defined(DUK_USE_HOBJECT_LAYOUT_2)
 /* LAYOUT 2 */
-#if defined(DUK_USE_ALIGN_4)
+#if (DUK_USE_ALIGN_BY == 4)
 #define DUK_HOBJECT_E_FLAG_PADDING(e_sz) ((4 - (e_sz)) & 0x03)
-#elif defined(DUK_USE_ALIGN_8)
+#elif (DUK_USE_ALIGN_BY == 8)
 #define DUK_HOBJECT_E_FLAG_PADDING(e_sz) ((8 - (e_sz)) & 0x07)
-#else
+#elif (DUK_USE_ALIGN_BY == 1)
 #define DUK_HOBJECT_E_FLAG_PADDING(e_sz) 0
+#else
+#error invalid DUK_USE_ALIGN_BY
 #endif
 #define DUK_HOBJECT_E_GET_KEY_BASE(heap,h) \
-	((duk_hstring **) ( \
+	((duk_hstring **) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * sizeof(duk_propvalue) \
 	))
 #define DUK_HOBJECT_E_GET_VALUE_BASE(heap,h) \
-	((duk_propvalue *) ( \
+	((duk_propvalue *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) \
 	))
 #define DUK_HOBJECT_E_GET_FLAGS_BASE(heap,h) \
-	((duk_uint8_t *) ( \
+	((duk_uint8_t *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_hstring *) + sizeof(duk_propvalue)) \
 	))
 #define DUK_HOBJECT_A_GET_BASE(heap,h) \
-	((duk_tval *) ( \
+	((duk_tval *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_hstring *) + sizeof(duk_propvalue) + sizeof(duk_uint8_t)) + \
 			DUK_HOBJECT_E_FLAG_PADDING(DUK_HOBJECT_GET_ESIZE((h))) \
 	))
 #define DUK_HOBJECT_H_GET_BASE(heap,h) \
-	((duk_uint32_t *) ( \
+	((duk_uint32_t *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_hstring *) + sizeof(duk_propvalue) + sizeof(duk_uint8_t)) + \
 			DUK_HOBJECT_E_FLAG_PADDING(DUK_HOBJECT_GET_ESIZE((h))) + \
@@ -312,40 +401,40 @@
 		(n_hash) * sizeof(duk_uint32_t) \
 	)
 #define DUK_HOBJECT_P_SET_REALLOC_PTRS(p_base,set_e_k,set_e_pv,set_e_f,set_a,set_h,n_ent,n_arr,n_hash)  do { \
-		(set_e_pv) = (duk_propvalue *) (p_base); \
-		(set_e_k) = (duk_hstring **) ((set_e_pv) + (n_ent)); \
-		(set_e_f) = (duk_uint8_t *) ((set_e_k) + (n_ent)); \
-		(set_a) = (duk_tval *) (((duk_uint8_t *) (set_e_f)) + \
-		                        sizeof(duk_uint8_t) * (n_ent) + \
-		                        DUK_HOBJECT_E_FLAG_PADDING((n_ent))); \
-		(set_h) = (duk_uint32_t *) ((set_a) + (n_arr)); \
+		(set_e_pv) = (duk_propvalue *) (void *) (p_base); \
+		(set_e_k) = (duk_hstring **) (void *) ((set_e_pv) + (n_ent)); \
+		(set_e_f) = (duk_uint8_t *) (void *) ((set_e_k) + (n_ent)); \
+		(set_a) = (duk_tval *) (void *) (((duk_uint8_t *) (set_e_f)) + \
+		                                 sizeof(duk_uint8_t) * (n_ent) + \
+		                                 DUK_HOBJECT_E_FLAG_PADDING((n_ent))); \
+		(set_h) = (duk_uint32_t *) (void *) ((set_a) + (n_arr)); \
 	} while (0)
 #elif defined(DUK_USE_HOBJECT_LAYOUT_3)
 /* LAYOUT 3 */
 #define DUK_HOBJECT_E_GET_KEY_BASE(heap,h) \
-	((duk_hstring **) ( \
+	((duk_hstring **) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * sizeof(duk_propvalue) + \
 			DUK_HOBJECT_GET_ASIZE((h)) * sizeof(duk_tval) \
 	))
 #define DUK_HOBJECT_E_GET_VALUE_BASE(heap,h) \
-	((duk_propvalue *) ( \
+	((duk_propvalue *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) \
 	))
 #define DUK_HOBJECT_E_GET_FLAGS_BASE(heap,h) \
-	((duk_uint8_t *) ( \
+	((duk_uint8_t *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_propvalue) + sizeof(duk_hstring *)) + \
 			DUK_HOBJECT_GET_ASIZE((h)) * sizeof(duk_tval) + \
 			DUK_HOBJECT_GET_HSIZE((h)) * sizeof(duk_uint32_t) \
 	))
 #define DUK_HOBJECT_A_GET_BASE(heap,h) \
-	((duk_tval *) ( \
+	((duk_tval *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * sizeof(duk_propvalue) \
 	))
 #define DUK_HOBJECT_H_GET_BASE(heap,h) \
-	((duk_uint32_t *) ( \
+	((duk_uint32_t *) (void *) ( \
 		DUK_HOBJECT_GET_PROPS((heap), (h)) + \
 			DUK_HOBJECT_GET_ESIZE((h)) * (sizeof(duk_propvalue) + sizeof(duk_hstring *)) + \
 			DUK_HOBJECT_GET_ASIZE((h)) * sizeof(duk_tval) \
@@ -357,11 +446,11 @@
 		(n_hash) * sizeof(duk_uint32_t) \
 	)
 #define DUK_HOBJECT_P_SET_REALLOC_PTRS(p_base,set_e_k,set_e_pv,set_e_f,set_a,set_h,n_ent,n_arr,n_hash)  do { \
-		(set_e_pv) = (duk_propvalue *) (p_base); \
-		(set_a) = (duk_tval *) ((set_e_pv) + (n_ent)); \
-		(set_e_k) = (duk_hstring **) ((set_a) + (n_arr)); \
-		(set_h) = (duk_uint32_t *) ((set_e_k) + (n_ent)); \
-		(set_e_f) = (duk_uint8_t *) ((set_h) + (n_hash)); \
+		(set_e_pv) = (duk_propvalue *) (void *) (p_base); \
+		(set_a) = (duk_tval *) (void *) ((set_e_pv) + (n_ent)); \
+		(set_e_k) = (duk_hstring **) (void *) ((set_a) + (n_arr)); \
+		(set_h) = (duk_uint32_t *) (void *) ((set_e_k) + (n_ent)); \
+		(set_e_f) = (duk_uint8_t *) (void *) ((set_h) + (n_hash)); \
 	} while (0)
 #else
 #error invalid hobject layout defines
@@ -525,7 +614,7 @@
 #endif
 
 /* note: this updates refcounts */
-#define DUK_HOBJECT_SET_PROTOTYPE_UPDREF(thr,h,p)       duk_hobject_set_prototype((thr), (h), (p))
+#define DUK_HOBJECT_SET_PROTOTYPE_UPDREF(thr,h,p)       duk_hobject_set_prototype_updref((thr), (h), (p))
 
 /*
  *  Resizing and hash behavior
@@ -557,12 +646,14 @@
 #define DUK_HOBJECT_A_ABANDON_LIMIT      2  /* 25%, i.e. less than 25% used -> abandon */
 
 /* internal align target for props allocation, must be 2*n for some n */
-#if defined(DUK_USE_ALIGN_4)
+#if (DUK_USE_ALIGN_BY == 4)
 #define DUK_HOBJECT_ALIGN_TARGET         4
-#elif defined(DUK_USE_ALIGN_8)
+#elif (DUK_USE_ALIGN_BY == 8)
 #define DUK_HOBJECT_ALIGN_TARGET         8
-#else
+#elif (DUK_USE_ALIGN_BY == 1)
 #define DUK_HOBJECT_ALIGN_TARGET         1
+#else
+#error invalid DUK_USE_ALIGN_BY
 #endif
 
 /* controls for minimum entry part growth */
@@ -736,6 +827,7 @@ DUK_INTERNAL_DECL duk_hobject *duk_hobject_alloc_checked(duk_hthread *thr, duk_u
 #endif
 DUK_INTERNAL_DECL duk_hcompiledfunction *duk_hcompiledfunction_alloc(duk_heap *heap, duk_uint_t hobject_flags);
 DUK_INTERNAL_DECL duk_hnativefunction *duk_hnativefunction_alloc(duk_heap *heap, duk_uint_t hobject_flags);
+DUK_INTERNAL duk_hbufferobject *duk_hbufferobject_alloc(duk_heap *heap, duk_uint_t hobject_flags);
 DUK_INTERNAL_DECL duk_hthread *duk_hthread_alloc(duk_heap *heap, duk_uint_t hobject_flags);
 
 /* low-level property functions */
@@ -743,6 +835,12 @@ DUK_INTERNAL_DECL void duk_hobject_find_existing_entry(duk_heap *heap, duk_hobje
 DUK_INTERNAL_DECL duk_tval *duk_hobject_find_existing_entry_tval_ptr(duk_heap *heap, duk_hobject *obj, duk_hstring *key);
 DUK_INTERNAL_DECL duk_tval *duk_hobject_find_existing_entry_tval_ptr_and_attrs(duk_heap *heap, duk_hobject *obj, duk_hstring *key, duk_int_t *out_attrs);
 DUK_INTERNAL_DECL duk_tval *duk_hobject_find_existing_array_entry_tval_ptr(duk_heap *heap, duk_hobject *obj, duk_uarridx_t i);
+
+/* XXX: when optimizing for guaranteed property slots, use a guaranteed
+ * slot for internal value; this call can then access it directly.
+ */
+#define duk_hobject_get_internal_value_tval_ptr(heap,obj) \
+	duk_hobject_find_existing_entry_tval_ptr((heap), (obj), DUK_HEAP_STRING_INT_VALUE((heap)))
 
 /* core property functions */
 DUK_INTERNAL_DECL duk_bool_t duk_hobject_getprop(duk_hthread *thr, duk_tval *tv_obj, duk_tval *tv_key);
@@ -788,7 +886,6 @@ DUK_INTERNAL_DECL duk_bool_t duk_hobject_object_ownprop_helper(duk_context *ctx,
 /* internal properties */
 DUK_INTERNAL_DECL duk_bool_t duk_hobject_get_internal_value(duk_heap *heap, duk_hobject *obj, duk_tval *tv);
 DUK_INTERNAL_DECL duk_hstring *duk_hobject_get_internal_value_string(duk_heap *heap, duk_hobject *obj);
-DUK_INTERNAL_DECL duk_hbuffer *duk_hobject_get_internal_value_buffer(duk_heap *heap, duk_hobject *obj);
 
 /* hobject management functions */
 DUK_INTERNAL_DECL void duk_hobject_compact_props(duk_hthread *thr, duk_hobject *obj);
@@ -796,6 +893,7 @@ DUK_INTERNAL_DECL void duk_hobject_compact_props(duk_hthread *thr, duk_hobject *
 /* ES6 proxy */
 #if defined(DUK_USE_ES6_PROXY)
 DUK_INTERNAL_DECL duk_bool_t duk_hobject_proxy_check(duk_hthread *thr, duk_hobject *obj, duk_hobject **out_target, duk_hobject **out_handler);
+DUK_INTERNAL_DECL duk_hobject *duk_hobject_resolve_proxy_target(duk_hthread *thr, duk_hobject *obj);
 #endif
 
 /* enumeration */
@@ -804,7 +902,7 @@ DUK_INTERNAL_DECL duk_ret_t duk_hobject_get_enumerated_keys(duk_context *ctx, du
 DUK_INTERNAL_DECL duk_bool_t duk_hobject_enumerator_next(duk_context *ctx, duk_bool_t get_value);
 
 /* macros */
-DUK_INTERNAL_DECL void duk_hobject_set_prototype(duk_hthread *thr, duk_hobject *h, duk_hobject *p);
+DUK_INTERNAL_DECL void duk_hobject_set_prototype_updref(duk_hthread *thr, duk_hobject *h, duk_hobject *p);
 
 /* finalization */
 DUK_INTERNAL_DECL void duk_hobject_run_finalizer(duk_hthread *thr, duk_hobject *obj);

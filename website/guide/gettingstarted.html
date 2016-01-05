@@ -38,7 +38,7 @@ you can enable line editing support by editing the Makefile:
 <p>You can now run Ecmascript code interactively:</p>
 <pre>
 $ ./duk
-((o) Duktape [no readline] 1.1.0 (v1.1.0)
+((o) Duktape [no readline] 1.3.0 (v1.3.0)
 duk&gt; print('Hello world!')
 Hello world!
 = undefined
@@ -58,8 +58,8 @@ $ ./duk fib.js
 
 <p>The command line tool is simply an example of a program which embeds
 Duktape.  Embedding Duktape into your program is very simple: just add
-<code>duktape.c</code> and <code>duktape.h</code> to your build, and call the
-Duktape API from elsewhere in your program.</p>
+<code>duktape.c</code>, <code>duktape.h</code>, and <code>duk_config.h</code>
+to your build, and call the Duktape API from elsewhere in your program.</p>
 
 <p>The distributable contains a very simple example program, <code>hello.c</code>,
 which illustrates this process.  Compile the test program e.g. as (see

@@ -6,12 +6,11 @@
 #define DUK_JS_H_INCLUDED
 
 /* Flags for call handling. */
-#define DUK_CALL_FLAG_PROTECTED              (1 << 0)  /* duk_handle_call: call is protected */
-#define DUK_CALL_FLAG_IGNORE_RECLIMIT        (1 << 1)  /* duk_handle_call: call ignores C recursion limit (for errhandler calls) */
-#define DUK_CALL_FLAG_CONSTRUCTOR_CALL       (1 << 2)  /* duk_handle_call: constructor call (i.e. called as 'new Foo()') */
-#define DUK_CALL_FLAG_IS_RESUME              (1 << 3)  /* duk_handle_ecma_call_setup: setup for a resume() */
-#define DUK_CALL_FLAG_IS_TAILCALL            (1 << 4)  /* duk_handle_ecma_call_setup: setup for a tailcall */
-#define DUK_CALL_FLAG_DIRECT_EVAL            (1 << 5)  /* call is a direct eval call */
+#define DUK_CALL_FLAG_IGNORE_RECLIMIT        (1 << 0)  /* duk_handle_call_xxx: call ignores C recursion limit (for errhandler calls) */
+#define DUK_CALL_FLAG_CONSTRUCTOR_CALL       (1 << 1)  /* duk_handle_call_xxx: constructor call (i.e. called as 'new Foo()') */
+#define DUK_CALL_FLAG_IS_RESUME              (1 << 2)  /* duk_handle_ecma_call_setup: setup for a resume() */
+#define DUK_CALL_FLAG_IS_TAILCALL            (1 << 3)  /* duk_handle_ecma_call_setup: setup for a tail call */
+#define DUK_CALL_FLAG_DIRECT_EVAL            (1 << 4)  /* call is a direct eval call */
 
 /* Flags for duk_js_equals_helper(). */
 #define DUK_EQUALS_FLAG_SAMEVALUE            (1 << 0)  /* use SameValue instead of non-strict equality */
@@ -32,7 +31,11 @@ DUK_INTERNAL_DECL duk_uint16_t duk_js_touint16(duk_hthread *thr, duk_tval *tv);
 DUK_INTERNAL_DECL duk_small_int_t duk_js_to_arrayindex_raw_string(const duk_uint8_t *str, duk_uint32_t blen, duk_uarridx_t *out_idx);
 DUK_INTERNAL_DECL duk_uarridx_t duk_js_to_arrayindex_string_helper(duk_hstring *h);
 DUK_INTERNAL_DECL duk_bool_t duk_js_equals_helper(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y, duk_small_int_t flags);
+DUK_INTERNAL_DECL duk_small_int_t duk_js_data_compare(const duk_uint8_t *buf1, const duk_uint8_t *buf2, duk_size_t len1, duk_size_t len2);
 DUK_INTERNAL_DECL duk_small_int_t duk_js_string_compare(duk_hstring *h1, duk_hstring *h2);
+#if 0  /* unused */
+DUK_INTERNAL_DECL duk_small_int_t duk_js_buffer_compare(duk_heap *heap, duk_hbuffer *h1, duk_hbuffer *h2);
+#endif
 DUK_INTERNAL_DECL duk_bool_t duk_js_compare_helper(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y, duk_small_int_t flags);
 DUK_INTERNAL_DECL duk_bool_t duk_js_instanceof(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y);
 DUK_INTERNAL_DECL duk_bool_t duk_js_in(duk_hthread *thr, duk_tval *tv_x, duk_tval *tv_y);
@@ -84,7 +87,8 @@ void duk_js_push_closure(duk_hthread *thr,
                          duk_hobject *outer_lex_env);
 
 /* call handling */
-DUK_INTERNAL_DECL duk_int_t duk_handle_call(duk_hthread *thr, duk_idx_t num_stack_args, duk_small_uint_t call_flags);
+DUK_INTERNAL_DECL duk_int_t duk_handle_call_protected(duk_hthread *thr, duk_idx_t num_stack_args, duk_small_uint_t call_flags);
+DUK_INTERNAL_DECL void duk_handle_call_unprotected(duk_hthread *thr, duk_idx_t num_stack_args, duk_small_uint_t call_flags);
 DUK_INTERNAL_DECL duk_int_t duk_handle_safe_call(duk_hthread *thr, duk_safe_call_function func, duk_idx_t num_stack_args, duk_idx_t num_stack_res);
 DUK_INTERNAL_DECL duk_bool_t duk_handle_ecma_call_setup(duk_hthread *thr, duk_idx_t num_stack_args, duk_small_uint_t call_flags);
 

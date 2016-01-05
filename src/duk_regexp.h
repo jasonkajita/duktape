@@ -9,19 +9,9 @@
 #define DUK_RE_MAX_ATOM_COPIES             1000
 
 /* regexp compilation limits */
-#if defined(DUK_USE_DEEP_C_STACK)
-#define DUK_RE_COMPILE_RECURSION_LIMIT     1000
-#else
-#define DUK_RE_COMPILE_RECURSION_LIMIT     100
-#endif
 #define DUK_RE_COMPILE_TOKEN_LIMIT         100000000L   /* 1e8 */
 
 /* regexp execution limits */
-#if defined(DUK_USE_DEEP_C_STACK)
-#define DUK_RE_EXECUTE_RECURSION_LIMIT     1000
-#else
-#define DUK_RE_EXECUTE_RECURSION_LIMIT     100
-#endif
 #define DUK_RE_EXECUTE_STEPS_LIMIT         1000000000L  /* 1e9 */
 
 /* regexp opcodes */
@@ -72,7 +62,7 @@ struct duk_re_compiler_ctx {
 	duk_uint32_t re_flags;
 	duk_lexer_ctx lex;
 	duk_re_token curr_token;
-	duk_hbuffer_dynamic *buf;
+	duk_bufwriter_ctx bw;
 	duk_uint32_t captures;  /* highest capture number emitted so far (used as: ++captures) */
 	duk_uint32_t highest_backref;
 	duk_uint32_t recursion_depth;

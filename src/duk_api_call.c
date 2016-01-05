@@ -10,6 +10,8 @@
  * May currently throw an error e.g. when getting the property.
  */
 DUK_LOCAL void duk__call_prop_prep_stack(duk_context *ctx, duk_idx_t normalized_obj_index, duk_idx_t nargs) {
+	DUK_ASSERT_CTX_VALID(ctx);
+
 	DUK_DDD(DUK_DDDPRINT("duk__call_prop_prep_stack, normalized_obj_index=%ld, nargs=%ld, stacktop=%ld",
 	                     (long) normalized_obj_index, (long) nargs, (long) duk_get_top(ctx)));
 
@@ -37,9 +39,8 @@ DUK_EXTERNAL void duk_call(duk_context *ctx, duk_idx_t nargs) {
 	duk_hthread *thr = (duk_hthread *) ctx;
 	duk_small_uint_t call_flags;
 	duk_idx_t idx_func;
-	duk_int_t rc;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 
 	idx_func = duk_get_top(ctx) - nargs - 1;
@@ -56,19 +57,17 @@ DUK_EXTERNAL void duk_call(duk_context *ctx, duk_idx_t nargs) {
 
 	call_flags = 0;  /* not protected, respect reclimit, not constructor */
 
-	rc = duk_handle_call(thr,           /* thread */
-	                     nargs,         /* num_stack_args */
-	                     call_flags);   /* call_flags */
-	DUK_UNREF(rc);
+	duk_handle_call_unprotected(thr,           /* thread */
+	                            nargs,         /* num_stack_args */
+	                            call_flags);   /* call_flags */
 }
 
 DUK_EXTERNAL void duk_call_method(duk_context *ctx, duk_idx_t nargs) {
 	duk_hthread *thr = (duk_hthread *) ctx;
 	duk_small_uint_t call_flags;
 	duk_idx_t idx_func;
-	duk_int_t rc;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 
 	idx_func = duk_get_top(ctx) - nargs - 2;  /* must work for nargs <= 0 */
@@ -79,10 +78,9 @@ DUK_EXTERNAL void duk_call_method(duk_context *ctx, duk_idx_t nargs) {
 
 	call_flags = 0;  /* not protected, respect reclimit, not constructor */
 
-	rc = duk_handle_call(thr,           /* thread */
-	                     nargs,         /* num_stack_args */
-	                     call_flags);   /* call_flags */
-	DUK_UNREF(rc);
+	duk_handle_call_unprotected(thr,           /* thread */
+	                            nargs,         /* num_stack_args */
+	                            call_flags);   /* call_flags */
 }
 
 DUK_EXTERNAL void duk_call_prop(duk_context *ctx, duk_idx_t obj_index, duk_idx_t nargs) {
@@ -92,6 +90,8 @@ DUK_EXTERNAL void duk_call_prop(duk_context *ctx, duk_idx_t obj_index, duk_idx_t
 	 *  the 'this' and 'func' values to handle bound function chains, which
 	 *  is now done "in-place", so this is not a trivial change.
 	 */
+
+	DUK_ASSERT_CTX_VALID(ctx);
 
 	obj_index = duk_require_normalize_index(ctx, obj_index);  /* make absolute */
 
@@ -106,7 +106,7 @@ DUK_EXTERNAL duk_int_t duk_pcall(duk_context *ctx, duk_idx_t nargs) {
 	duk_idx_t idx_func;
 	duk_int_t rc;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 
 	idx_func = duk_get_top(ctx) - nargs - 1;  /* must work for nargs <= 0 */
@@ -129,11 +129,11 @@ DUK_EXTERNAL duk_int_t duk_pcall(duk_context *ctx, duk_idx_t nargs) {
 	duk_push_undefined(ctx);
 	duk_insert(ctx, idx_func + 1);
 
-	call_flags = DUK_CALL_FLAG_PROTECTED;  /* protected, respect reclimit, not constructor */
+	call_flags = 0;  /* respect reclimit, not constructor */
 
-	rc = duk_handle_call(thr,           /* thread */
-	                     nargs,         /* num_stack_args */
-	                     call_flags);   /* call_flags */
+	rc = duk_handle_call_protected(thr,           /* thread */
+	                               nargs,         /* num_stack_args */
+	                               call_flags);   /* call_flags */
 
 	return rc;
 }
@@ -144,7 +144,7 @@ DUK_EXTERNAL duk_int_t duk_pcall_method(duk_context *ctx, duk_idx_t nargs) {
 	duk_idx_t idx_func;
 	duk_int_t rc;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 
 	idx_func = duk_get_top(ctx) - nargs - 2;  /* must work for nargs <= 0 */
@@ -154,11 +154,11 @@ DUK_EXTERNAL duk_int_t duk_pcall_method(duk_context *ctx, duk_idx_t nargs) {
 		return DUK_EXEC_ERROR;  /* unreachable */
 	}
 
-	call_flags = DUK_CALL_FLAG_PROTECTED;  /* protected, respect reclimit, not constructor */
+	call_flags = 0;  /* respect reclimit, not constructor */
 
-	rc = duk_handle_call(thr,           /* thread */
-	                     nargs,         /* num_stack_args */
-	                     call_flags);   /* call_flags */
+	rc = duk_handle_call_protected(thr,           /* thread */
+	                               nargs,         /* num_stack_args */
+	                               call_flags);   /* call_flags */
 
 	return rc;
 }
@@ -170,6 +170,8 @@ DUK_LOCAL duk_ret_t duk__pcall_prop_raw(duk_context *ctx) {
 	/* Get the original arguments.  Note that obj_index may be a relative
 	 * index so the stack must have the same top when we use it.
 	 */
+
+	DUK_ASSERT_CTX_VALID(ctx);
 
 	obj_index = (duk_idx_t) duk_get_int(ctx, -2);
 	nargs = (duk_idx_t) duk_get_int(ctx, -1);
@@ -187,6 +189,8 @@ DUK_EXTERNAL duk_int_t duk_pcall_prop(duk_context *ctx, duk_idx_t obj_index, duk
 	 *  and property lookup, not just the call itself.
 	 */
 
+	DUK_ASSERT_CTX_VALID(ctx);
+
 	duk_push_idx(ctx, obj_index);
 	duk_push_idx(ctx, nargs);
 
@@ -201,7 +205,7 @@ DUK_EXTERNAL duk_int_t duk_safe_call(duk_context *ctx, duk_safe_call_function fu
 	duk_hthread *thr = (duk_hthread *) ctx;
 	duk_int_t rc;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 
 	if (duk_get_top(ctx) < nargs || nrets < 0) {
@@ -263,7 +267,8 @@ DUK_EXTERNAL void duk_new(duk_context *ctx, duk_idx_t nargs) {
 	duk_hobject *fallback;
 	duk_idx_t idx_cons;
 	duk_small_uint_t call_flags;
-	duk_int_t rc;
+
+	DUK_ASSERT_CTX_VALID(ctx);
 
 	/* [... constructor arg1 ... argN] */
 
@@ -355,15 +360,13 @@ DUK_EXTERNAL void duk_new(duk_context *ctx, duk_idx_t nargs) {
 
 	call_flags = DUK_CALL_FLAG_CONSTRUCTOR_CALL;  /* not protected, respect reclimit, is a constructor call */
 
-	rc = duk_handle_call(thr,           /* thread */
-	                     nargs,         /* num_stack_args */
-	                     call_flags);   /* call_flags */
-	DUK_UNREF(rc);
+	duk_handle_call_unprotected(thr,           /* thread */
+	                            nargs,         /* num_stack_args */
+	                            call_flags);   /* call_flags */
 
 	/* [... fallback retval] */
 
-	DUK_DDD(DUK_DDDPRINT("constructor call finished, rc=%ld, fallback=%!iT, retval=%!iT",
-	                     (long) rc,
+	DUK_DDD(DUK_DDDPRINT("constructor call finished, fallback=%!iT, retval=%!iT",
 	                     (duk_tval *) duk_get_tval(ctx, -2),
 	                     (duk_tval *) duk_get_tval(ctx, -1)));
 
@@ -385,6 +388,7 @@ DUK_EXTERNAL void duk_new(duk_context *ctx, duk_idx_t nargs) {
 	 */
 
 #ifdef DUK_USE_AUGMENT_ERROR_CREATE
+	duk_hthread_sync_currpc(thr);
 	duk_err_augment_error_create(thr, thr, NULL, 0, 1 /*noblame_fileline*/);
 #endif
 
@@ -396,11 +400,39 @@ DUK_EXTERNAL void duk_new(duk_context *ctx, duk_idx_t nargs) {
 	DUK_ERROR(thr, DUK_ERR_TYPE_ERROR, DUK_STR_NOT_CONSTRUCTABLE);
 }
 
+DUK_LOCAL duk_ret_t duk__pnew_helper(duk_context *ctx) {
+	duk_uint_t nargs;
+
+	nargs = duk_to_uint(ctx, -1);
+	duk_pop(ctx);
+
+	duk_new(ctx, nargs);
+	return 1;
+}
+
+DUK_EXTERNAL duk_int_t duk_pnew(duk_context *ctx, duk_idx_t nargs) {
+	duk_int_t rc;
+
+	DUK_ASSERT_CTX_VALID(ctx);
+
+	/* For now, just use duk_safe_call() to wrap duk_new().  We can't
+	 * simply use a protected duk_handle_call() because there's post
+	 * processing which might throw.  It should be possible to ensure
+	 * the post processing never throws (except in internal errors and
+	 * out of memory etc which are always allowed) and then remove this
+	 * wrapper.
+	 */
+
+	duk_push_uint(ctx, nargs);
+	rc = duk_safe_call(ctx, duk__pnew_helper, nargs + 2 /*nargs*/, 1 /*nrets*/);
+	return rc;
+}
+
 DUK_EXTERNAL duk_bool_t duk_is_constructor_call(duk_context *ctx) {
 	duk_hthread *thr = (duk_hthread *) ctx;
 	duk_activation *act;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT_DISABLE(thr->callstack_top >= 0);
 
@@ -422,7 +454,7 @@ DUK_EXTERNAL duk_bool_t duk_is_strict_call(duk_context *ctx) {
 	 * the internal call sites.
 	 */
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT_DISABLE(thr->callstack_top >= 0);
 
@@ -443,7 +475,7 @@ DUK_EXTERNAL duk_int_t duk_get_current_magic(duk_context *ctx) {
 	duk_activation *act;
 	duk_hobject *func;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT_DISABLE(thr->callstack_top >= 0);
 
@@ -471,7 +503,7 @@ DUK_EXTERNAL duk_int_t duk_get_magic(duk_context *ctx, duk_idx_t index) {
 	duk_tval *tv;
 	duk_hobject *h;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 
 	tv = duk_require_tval(ctx, index);
 	if (DUK_TVAL_IS_OBJECT(tv)) {
@@ -495,7 +527,7 @@ DUK_EXTERNAL duk_int_t duk_get_magic(duk_context *ctx, duk_idx_t index) {
 DUK_EXTERNAL void duk_set_magic(duk_context *ctx, duk_idx_t index, duk_int_t magic) {
 	duk_hnativefunction *nf;
 
-	DUK_ASSERT(ctx != NULL);
+	DUK_ASSERT_CTX_VALID(ctx);
 
 	nf = duk_require_hnativefunction(ctx, index);
 	DUK_ASSERT(nf != NULL);

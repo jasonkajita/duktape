@@ -22,18 +22,23 @@
 set -e  # exit on errors
 
 INITJS_MINIFY=closure
+CREATE_SPDX=0
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--minify) INITJS_MINIFY="$2"; shift;;
+		--create-spdx) CREATE_SPDX=1; break;;
 		--) shift; break;;
 		*) break;;
 	esac
 	shift
 done
 
+ENTRYPWD=`pwd`
 DIST=`pwd`/dist
 DISTSRCSEP=$DIST/src-separate
 DISTSRCCOM=$DIST/src
+DISTSRCNOL=$DIST/src-noline  # src-noline/duktape.c is same as src/duktape.c but without line directives
+                             # https://github.com/svaarala/duktape/pull/363
 
 # DUK_VERSION is grepped from duk_api_public.h.in: it is needed for the
 # public API and we want to avoid defining it in two places.
@@ -44,10 +49,12 @@ DUK_PATCH=`echo "$DUK_VERSION % 100" | bc`
 DUK_VERSION_FORMATTED=$DUK_MAJOR.$DUK_MINOR.$DUK_PATCH
 GIT_COMMIT=`git rev-parse HEAD`
 GIT_DESCRIBE=`git describe --always --dirty`
+GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`
 
 echo "DUK_VERSION: $DUK_VERSION"
 echo "GIT_COMMIT: $GIT_COMMIT"
 echo "GIT_DESCRIBE: $GIT_DESCRIBE"
+echo "GIT_BRANCH: $GIT_BRANCH"
 echo "Creating distributable sources to: $DIST"
 
 # Create dist directory structure
@@ -56,6 +63,8 @@ rm -rf $DIST
 mkdir $DIST
 mkdir $DIST/src-separate
 mkdir $DIST/src
+mkdir $DIST/src-noline
+mkdir $DIST/config
 mkdir $DIST/extras
 mkdir $DIST/polyfills
 #mkdir $DIST/doc
@@ -75,6 +84,10 @@ mkdir $DIST/examples/alloc-logging
 mkdir $DIST/examples/alloc-torture
 mkdir $DIST/examples/alloc-hybrid
 mkdir $DIST/examples/debug-trans-socket
+mkdir $DIST/examples/debug-trans-dvalue
+mkdir $DIST/examples/codepage-conv
+mkdir $DIST/examples/dummy-date-provider
+mkdir $DIST/examples/cpp-exceptions
 
 # Copy most files directly
 
@@ -87,6 +100,7 @@ for i in \
 	duk_api_call.c		\
 	duk_api_codec.c		\
 	duk_api_compile.c	\
+	duk_api_bytecode.c	\
 	duk_api_memory.c	\
 	duk_api_object.c	\
 	duk_api_string.c	\
@@ -97,6 +111,8 @@ for i in \
 	duk_bi_boolean.c	\
 	duk_bi_buffer.c		\
 	duk_bi_date.c		\
+	duk_bi_date_unix.c	\
+	duk_bi_date_windows.c	\
 	duk_bi_duktape.c	\
 	duk_bi_error.c		\
 	duk_bi_function.c	\
@@ -155,10 +171,13 @@ for i in \
 	duk_hthread.h		\
 	duk_hthread_misc.c	\
 	duk_hthread_stacks.c	\
+	duk_hbufferobject.h	\
+	duk_hbufferobject_misc.c	\
 	duk_debugger.c		\
 	duk_debugger.h		\
 	duk_internal.h		\
 	duk_jmpbuf.h		\
+	duk_exception.h		\
 	duk_js_bytecode.h	\
 	duk_js_call.c		\
 	duk_js_compiler.c	\
@@ -187,6 +206,7 @@ for i in \
 	duk_util_hashprime.c	\
 	duk_util_misc.c		\
 	duk_util_tinyrandom.c	\
+	duk_util_bufwriter.c	\
 	duk_selftest.c		\
 	duk_selftest.h		\
 	duk_strings.c		\
@@ -197,11 +217,37 @@ for i in \
 	cp src/$i $DISTSRCSEP/
 done
 
+cd $ENTRYPWD/config
+tar cfz $DIST/config/genconfig_metadata.tar.gz \
+	tags.yaml \
+	platforms.yaml \
+	architectures.yaml \
+	compilers.yaml \
+	platforms \
+	architectures \
+	compilers \
+	feature-options \
+	config-options \
+	helper-snippets \
+	header-snippets \
+	other-defines \
+	examples
+cd $ENTRYPWD
+for i in \
+	README.rst \
+	genconfig.py \
+	; do
+	cp config/$i $DIST/config/
+done
+
 for i in \
 	README.rst \
 	Makefile \
 	package.json \
 	duk_debug.js \
+	duk_classnames.yaml \
+	duk_debugcommands.yaml \
+	duk_opcodes.yaml \
 	; do
 	cp debugger/$i $DIST/debugger/
 done
@@ -221,6 +267,8 @@ for i in \
 	object-assign.js \
 	performance-now.js \
 	duktape-isfastint.js \
+	duktape-error-setter-writable.js \
+	duktape-error-setter-nonwritable.js \
 	; do
 	cp polyfills/$i $DIST/polyfills/
 done
@@ -328,10 +376,43 @@ done
 
 for i in \
 	README.rst \
-	duk_debug_trans_socket.c \
-	duk_debug_trans_socket.h \
+	duk_trans_socket.c \
+	duk_trans_socket.h \
 	; do
 	cp examples/debug-trans-socket/$i $DIST/examples/debug-trans-socket/
+done
+
+for i in \
+	README.rst \
+	duk_trans_dvalue.c \
+	duk_trans_dvalue.h \
+	test.c \
+	Makefile \
+	; do
+	cp examples/debug-trans-dvalue/$i $DIST/examples/debug-trans-dvalue/
+done
+
+for i in \
+	README.rst \
+	duk_codepage_conv.c \
+	duk_codepage_conv.h \
+	test.c \
+	; do
+	cp examples/codepage-conv/$i $DIST/examples/codepage-conv/
+done
+
+for i in \
+	README.rst \
+	dummy_date_provider.c \
+	; do
+	cp examples/dummy-date-provider/$i $DIST/examples/dummy-date-provider/
+done
+
+for i in \
+	README.rst \
+	cpp_exceptions.cpp \
+	; do
+	cp examples/cpp-exceptions/$i $DIST/examples/cpp-exceptions/
 done
 
 cp extras/README.rst $DIST/extras/
@@ -346,6 +427,8 @@ for i in \
 	Makefile.coffee \
 	Makefile.jxpretty \
 	Makefile.sandbox \
+	Makefile.codepage \
+	Makefile.sharedlibrary \
 	mandel.js \
 	; do
 	cp dist-files/$i $DIST/
@@ -355,6 +438,7 @@ cat dist-files/README.rst | sed \
 	-e "s/@DUK_VERSION_FORMATTED@/$DUK_VERSION_FORMATTED/" \
 	-e "s/@GIT_COMMIT@/$GIT_COMMIT/" \
 	-e "s/@GIT_DESCRIBE@/$GIT_DESCRIBE/" \
+	-e "s/@GIT_BRANCH@/$GIT_BRANCH/" \
 	> $DIST/README.rst
 cp LICENSE.txt $DIST/LICENSE.txt  # not strict RST so keep .txt suffix
 cp AUTHORS.rst $DIST/AUTHORS.rst
@@ -363,6 +447,7 @@ cp AUTHORS.rst $DIST/AUTHORS.rst
 
 for i in \
 	murmurhash2.txt \
+	lua.txt \
 	commonjs.txt \
 	; do
 	cp licenses/$i $DIST/licenses/
@@ -378,6 +463,55 @@ echo ' */' >> $DIST/LICENSE.txt.tmp
 echo '/*' > $DIST/AUTHORS.rst.tmp
 cat AUTHORS.rst | python util/make_ascii.py | sed -e 's/^/ \*  /' >> $DIST/AUTHORS.rst.tmp
 echo ' */' >> $DIST/AUTHORS.rst.tmp
+
+# Build default duk_config.h from snippets using genconfig.
+python config/genconfig.py --metadata config --output $DIST/duk_config.h.tmp \
+	--git-commit "$GIT_COMMIT" --git-describe "$GIT_DESCRIBE" --git-branch "$GIT_BRANCH" \
+	--omit-removed-config-options --omit-unused-config-options \
+	--emit-config-sanity-check \
+	--support-feature-options \
+	duk-config-header
+cp $DIST/duk_config.h.tmp $DISTSRCCOM/duk_config.h
+cp $DIST/duk_config.h.tmp $DISTSRCNOL/duk_config.h
+cp $DIST/duk_config.h.tmp $DISTSRCSEP/duk_config.h
+#cp $DIST/duk_config.h.tmp $DIST/config/duk_config.h-autodetect
+
+# Build duk_config.h without feature option support.
+python config/genconfig.py --metadata config --output $DIST/config/duk_config.h-modular-static \
+	--git-commit "$GIT_COMMIT" --git-describe "$GIT_DESCRIBE" --git-branch "$GIT_BRANCH" \
+	--omit-removed-config-options --omit-unused-config-options \
+	--emit-legacy-feature-check --emit-config-sanity-check \
+	duk-config-header
+python config/genconfig.py --metadata config --output $DIST/config/duk_config.h-modular-dll \
+	--git-commit "$GIT_COMMIT" --git-describe "$GIT_DESCRIBE" --git-branch "$GIT_BRANCH" \
+	--omit-removed-config-options --omit-unused-config-options \
+	--emit-legacy-feature-check --emit-config-sanity-check \
+	--dll \
+	duk-config-header
+
+# Generate a few barebones config examples
+genconfig_barebones() {
+	python config/genconfig.py --metadata config --emit-legacy-feature-check --emit-config-sanity-check --omit-removed-config-options --omit-unused-config-options \
+		--git-commit "$GIT_COMMIT" --git-describe "$GIT_DESCRIBE" --git-branch "$GIT_BRANCH" \
+		--output $DIST/config/duk_config.h-$1-$2-$3 --platform $1 --architecture $2 --compiler $3 \
+		duk-config-header
+}
+#genconfig_barebones linux x86 gcc
+#genconfig_barebones linux x64 gcc
+#genconfig_barebones linux x86 clang
+#genconfig_barebones linux x64 clang
+#genconfig_barebones windows x86 msvc
+#genconfig_barebones windows x64 msvc
+#genconfig_barebones apple x86 gcc
+#genconfig_barebones apple x64 gcc
+#genconfig_barebones apple x86 clang
+#genconfig_barebones apple x64 clang
+
+#python config/genconfig.py --metadata config --emit-legacy-feature-check --emit-config-sanity-check --omit-removed-config-options --omit-unused-config-options \
+#	--git-commit "$GIT_COMMIT" --git-describe "$GIT_DESCRIBE" --git-branch "$GIT_BRANCH" \
+#	--output $DIST/config/duk_config.h-linux-gcc-x86 \
+#	--platform linux --compiler gcc --architecture x86 \
+#	duk-config-header
 
 # Build duktape.h from parts, with some git-related replacements.
 # The only difference between single and separate file duktape.h
@@ -399,16 +533,8 @@ cat src/duktape.h.in | sed -e '
     r dist/AUTHORS.rst.tmp
     d
 }
-/^@DUK_FEATURES_H@$/ {
-    r src/duk_features.h.in
-    d
-}
 /^@DUK_API_PUBLIC_H@$/ {
     r src/duk_api_public.h.in
-    d
-}
-/^@DUK_FEATURES_SANITY_H@$/ {
-    r src/duk_features_sanity.h.in
     d
 }
 /^@DUK_DBLUNION_H@$/ {
@@ -417,13 +543,17 @@ cat src/duktape.h.in | sed -e '
 }' | sed \
 	-e "s/@DUK_VERSION_FORMATTED@/$DUK_VERSION_FORMATTED/" \
 	-e "s/@GIT_COMMIT@/$GIT_COMMIT/" \
+	-e "s/@GIT_COMMIT_CSTRING@/\"$GIT_COMMIT\"/" \
 	-e "s/@GIT_DESCRIBE@/$GIT_DESCRIBE/" \
 	-e "s/@GIT_DESCRIBE_CSTRING@/\"$GIT_DESCRIBE\"/" \
+	-e "s/@GIT_BRANCH@/$GIT_BRANCH/" \
+	-e "s/@GIT_BRANCH_CSTRING@/\"$GIT_BRANCH\"/" \
 	> $DISTSRCCOM/duktape.h
 
 # keep the line so line numbers match between the two variant headers
 cat $DISTSRCCOM/duktape.h | sed -e 's/^#define DUK_SINGLE_FILE$//' \
 	> $DISTSRCSEP/duktape.h
+cp $DISTSRCSEP/duktape.h $DISTSRCNOL/duktape.h
 
 # Initjs code: built-in Ecmascript code snippets which are evaluated when
 # a new global context is created.  There are multiple minifiers, closure
@@ -507,6 +637,10 @@ case "$INITJS_MINIFY" in
 	*)
 		minify_none
 		echo "Using un-minified version"
+		echo ""
+		echo "*** This should not happen for an official build!"
+		echo ""
+		sleep 2
 		cp $DISTSRCSEP/duk_initjs_none.js.tmp $DISTSRCSEP/duk_initjs_min.js
 		;;
 esac
@@ -520,7 +654,9 @@ echo "Minified initjs size: original=$WC_INITJS_ORIG, UglifyJS=$WC_INITJS_UGLIFY
 
 python src/genbuildparams.py \
 	--version=$DUK_VERSION \
+	"--git-commit=$GIT_COMMIT" \
 	"--git-describe=$GIT_DESCRIBE" \
+	"--git-branch=$GIT_BRANCH" \
 	--out-json=$DISTSRCSEP/buildparams.json.tmp \
 	--out-header=$DISTSRCSEP/duk_buildparams.h.tmp
 
@@ -593,6 +729,7 @@ IDPART_MINUS_IDSTART_NOABMP_EXCL='Lu,Ll,Lt,Lm,Lo,Nl,0024,005F,ASCII,NONBMP'
 python src/prepare_unicode_data.py src/UnicodeData.txt $DISTSRCSEP/UnicodeData-expanded.tmp
 
 extract_chars() {
+	echo "Unicode extract_chars: $1 $2 $3"
 	python src/extract_chars.py \
 		--unicode-data=$DISTSRCSEP/UnicodeData-expanded.tmp \
 		--include-categories="$1" \
@@ -604,7 +741,9 @@ extract_chars() {
 }
 
 extract_caseconv() {
+	echo "Unicode extract_caseconv case conversion"
 	python src/extract_caseconv.py \
+		--command=caseconv_bitpacked \
 		--unicode-data=$DISTSRCSEP/UnicodeData-expanded.tmp \
 		--special-casing=src/SpecialCasing.txt \
 		--out-source=$DISTSRCSEP/duk_unicode_caseconv.c.tmp \
@@ -612,6 +751,16 @@ extract_caseconv() {
 		--table-name-lc=duk_unicode_caseconv_lc \
 		--table-name-uc=duk_unicode_caseconv_uc \
 		> $DISTSRCSEP/caseconv.txt
+
+	echo "Unicode extract_caseconv canon lookup"
+	python src/extract_caseconv.py \
+		--command=re_canon_lookup \
+		--unicode-data=$DISTSRCSEP/UnicodeData-expanded.tmp \
+		--special-casing=src/SpecialCasing.txt \
+		--out-source=$DISTSRCSEP/duk_unicode_re_canon_lookup.c.tmp \
+		--out-header=$DISTSRCSEP/duk_unicode_re_canon_lookup.h.tmp \
+		--table-name-re-canon-lookup=duk_unicode_re_canon_lookup \
+		> $DISTSRCSEP/caseconv_re_canon_lookup.txt
 }
 
 extract_chars $WHITESPACE_INCL $WHITESPACE_EXCL ws
@@ -664,6 +813,10 @@ cat > $DISTSRCSEP/sed.tmp <<EOF
 	r $DISTSRCSEP/duk_unicode_caseconv.h.tmp
 	d
 }
+/#include "duk_unicode_re_canon_lookup.h"/ {
+	r $DISTSRCSEP/duk_unicode_re_canon_lookup.h.tmp
+	d
+}
 EOF
 
 mv $DISTSRCSEP/duk_unicode.h $DISTSRCSEP/duk_unicode.h.tmp
@@ -700,6 +853,10 @@ cat > $DISTSRCSEP/sed.tmp <<EOF
 	r $DISTSRCSEP/duk_unicode_caseconv.c.tmp
 	d
 }
+/#include "duk_unicode_re_canon_lookup.c"/ {
+	r $DISTSRCSEP/duk_unicode_re_canon_lookup.c.tmp
+	d
+}
 EOF
 
 mv $DISTSRCSEP/duk_unicode_tables.c $DISTSRCSEP/duk_unicode_tables.c.tmp
@@ -718,25 +875,48 @@ for i in \
 	idp_m_ids idp_m_ids_noa idp_m_ids_noabmp; do
 	rm $DISTSRCSEP/$i.txt
 done
-rm $DISTSRCSEP/caseconv.txt
+rm $DISTSRCSEP/caseconv*.txt
 
 # Create a combined source file, duktape.c, into a separate combined source
-# directory.  This allows user to just include "duktape.c" and "duktape.h"
-# into a project and maximizes inlining and size optimization opportunities
-# even with older compilers.  Because some projects include these files into
-# their repository, the result should be deterministic and diffable.  Also,
-# it must retain __FILE__/__LINE__ behavior through preprocessor directives.
-# Whitespace and comments can be stripped as long as the other requirements
-# are met.
+# directory.  This allows user to just include "duktape.c", "duktape.h", and
+# "duk_config.h" into a project and maximizes inlining and size optimization
+# opportunities even with older compilers.  Because some projects include
+# these files into their repository, the result should be deterministic and
+# diffable.  Also, it must retain __FILE__/__LINE__ behavior through
+# preprocessor directives.  Whitespace and comments can be stripped as long
+# as the other requirements are met.  For some users it's preferable *not*
+# to use #line directives in the combined source, so a separate variant is
+# created for that, see: https://github.com/svaarala/duktape/pull/363.
 
-python util/combine_src.py $DISTSRCSEP $DISTSRCCOM/duktape.c \
-	"$DUK_VERSION" "$GIT_COMMIT" "$GIT_DESCRIBE" \
-	$DIST/LICENSE.txt.tmp $DIST/AUTHORS.rst.tmp
-echo "CLOC report on combined duktape.c source file"
-perl cloc-1.60.pl --quiet $DISTSRCCOM/duktape.c
+python util/combine_src.py \
+	--source-dir $DISTSRCSEP \
+	--output-source $DISTSRCCOM/duktape.c \
+	--output-metadata $DISTSRCCOM/metadata.json \
+	--duk-version "$DUK_VERSION" \
+	--git-commit "$GIT_COMMIT" \
+	--git-describe "$GIT_DESCRIBE" \
+	--git-branch "$GIT_BRANCH" \
+	--license-file $DIST/LICENSE.txt.tmp \
+	--authors-file $DIST/AUTHORS.rst.tmp \
+	--line-directives
+
+python util/combine_src.py \
+	--source-dir $DISTSRCSEP \
+	--output-source $DISTSRCNOL/duktape.c \
+	--output-metadata $DISTSRCNOL/metadata.json \
+	--duk-version "$DUK_VERSION" \
+	--git-commit "$GIT_COMMIT" \
+	--git-describe "$GIT_DESCRIBE" \
+	--git-branch "$GIT_BRANCH" \
+	--license-file $DIST/LICENSE.txt.tmp \
+	--authors-file $DIST/AUTHORS.rst.tmp
 
 # Clean up temp files
 rm $DIST/*.tmp
 
 # Create SPDX license once all other files are in place (and cleaned)
-python util/create_spdx_license.py `pwd`/dist/license.spdx
+if [ x"$CREATE_SPDX" = "x1" ]; then
+	python util/create_spdx_license.py `pwd`/dist/license.spdx
+else
+	echo "Skip SPDX license creation"
+fi

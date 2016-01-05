@@ -11,7 +11,7 @@
  */
 
 #define DUK__CLASS_BITS                  5
-#define DUK__BIDX_BITS                   6
+#define DUK__BIDX_BITS                   7
 #define DUK__STRIDX_BITS                 9  /* XXX: try to optimize to 8 */
 #define DUK__NATIDX_BITS                 8
 #define DUK__NUM_NORMAL_PROPS_BITS       6
@@ -26,7 +26,7 @@
 
 #define DUK__NARGS_VARARGS_MARKER        0x07
 #define DUK__NO_CLASS_MARKER             0x00   /* 0 = DUK_HOBJECT_CLASS_UNUSED */
-#define DUK__NO_BIDX_MARKER              0x3f
+#define DUK__NO_BIDX_MARKER              0x7f
 #define DUK__NO_STRIDX_MARKER            0xff
 
 #define DUK__PROP_TYPE_DOUBLE            0
@@ -330,9 +330,6 @@ DUK_INTERNAL void duk_hthread_create_builtin_objects(duk_hthread *thr) {
 				duk_c_function c_func_getter;
 				duk_c_function c_func_setter;
 
-				/* XXX: this is a bit awkward because there is no exposed helper
-				 * in the API style, only this internal helper.
-				 */
 				DUK_DDD(DUK_DDDPRINT("built-in accessor property: objidx=%ld, stridx=%ld, getteridx=%ld, setteridx=%ld, flags=0x%04lx",
 				                     (long) i, (long) stridx, (long) natidx_getter, (long) natidx_setter, (unsigned long) prop_flags));
 
@@ -341,7 +338,7 @@ DUK_INTERNAL void duk_hthread_create_builtin_objects(duk_hthread *thr) {
 				duk_push_c_function_noconstruct_noexotic(ctx, c_func_getter, 0);  /* always 0 args */
 				duk_push_c_function_noconstruct_noexotic(ctx, c_func_setter, 1);  /* always 1 arg */
 
-				/* XXX: magic for getter/setter? */
+				/* XXX: magic for getter/setter? use duk_def_prop()? */
 
 				prop_flags |= DUK_PROPDESC_FLAG_ACCESSOR;  /* accessor flag not encoded explicitly */
 				duk_hobject_define_accessor_internal(thr,
@@ -537,9 +534,6 @@ DUK_INTERNAL void duk_hthread_create_builtin_objects(duk_hthread *thr) {
 #else
 	                "?"
 #endif
-#if defined(DUK_USE_BYTEORDER_FORCED)
-			"f"
-#endif
 	                " "
 			/* Packed or unpacked tval */
 #if defined(DUK_USE_PACKED_TVAL)
@@ -602,12 +596,14 @@ DUK_INTERNAL void duk_hthread_create_builtin_objects(duk_hthread *thr) {
 #endif
 			" "
 			/* Alignment guarantee */
-#if defined(DUK_USE_ALIGN_4)
+#if (DUK_USE_ALIGN_BY == 4)
 			"a4"
-#elif defined(DUK_USE_ALIGN_8)
+#elif (DUK_USE_ALIGN_BY == 8)
 			"a8"
-#else
+#elif (DUK_USE_ALIGN_BY == 1)
 			"a1"
+#else
+#error invalid DUK_USE_ALIGN_BY
 #endif
 			" "
 			/* Architecture, OS, and compiler strings */

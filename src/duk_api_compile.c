@@ -16,11 +16,13 @@ DUK_EXTERNAL duk_int_t duk_eval_raw(duk_context *ctx, const char *src_buffer, du
 	duk_uint_t comp_flags;
 	duk_int_t rc;
 
+	DUK_ASSERT_CTX_VALID(ctx);
+
 	/* Note: strictness is *not* inherited from the current Duktape/C.
 	 * This would be confusing because the current strictness state
 	 * depends on whether we're running inside a Duktape/C activation
 	 * (= strict mode) or outside of any activation (= non-strict mode).
-	 * See api-testcases/test-eval-strictness.c for more discussion.
+	 * See tests/api/test-eval-strictness.c for more discussion.
 	 */
 
 	/* [ ... source? filename ] (depends on flags) */
@@ -36,10 +38,12 @@ DUK_EXTERNAL duk_int_t duk_eval_raw(duk_context *ctx, const char *src_buffer, du
 		goto got_rc;
 	}
 
+	duk_push_global_object(ctx);  /* explicit 'this' binding, see GH-164 */
+
 	if (flags & DUK_COMPILE_SAFE) {
-		rc = duk_pcall(ctx, 0);
+		rc = duk_pcall_method(ctx, 0);
 	} else {
-		duk_call(ctx, 0);
+		duk_call_method(ctx, 0);
 		rc = DUK_EXEC_SUCCESS;
 	}
 
@@ -61,10 +65,12 @@ DUK_LOCAL duk_ret_t duk__do_compile(duk_context *ctx) {
 	duk_small_uint_t comp_flags;
 	duk_hcompiledfunction *h_templ;
 
+	DUK_ASSERT_CTX_VALID(ctx);
+
 	/* Note: strictness is not inherited from the current Duktape/C
 	 * context.  Otherwise it would not be possible to compile
 	 * non-strict code inside a Duktape/C activation (which is
-	 * always strict now).  See api-testcases/test-eval-strictness.c
+	 * always strict now).  See tests/api/test-eval-strictness.c
 	 * for discussion.
 	 */
 
@@ -81,12 +87,12 @@ DUK_LOCAL duk_ret_t duk__do_compile(duk_context *ctx) {
 
 		h_sourcecode = duk_get_hstring(ctx, -2);
 		if ((flags & DUK_COMPILE_NOSOURCE) ||  /* args incorrect */
-		    (h_sourcecode == NULL)) {          /* e.g. duk_push_file_string_raw() pushed undefined */
+		    (h_sourcecode == NULL)) {          /* e.g. duk_push_string_file_raw() pushed undefined */
 			/* XXX: when this error is caused by a nonexistent
 			 * file given to duk_peval_file() or similar, the
 			 * error message is not the best possible.
 			 */
-			DUK_ERROR(thr, DUK_ERR_API_ERROR, DUK_STR_NO_SOURCECODE);
+			DUK_ERROR_API(thr, DUK_STR_NO_SOURCECODE);
 		}
 		DUK_ASSERT(h_sourcecode != NULL);
 		comp_args->src_buffer = (const duk_uint8_t *) DUK_HSTRING_GET_DATA(h_sourcecode);
@@ -137,6 +143,8 @@ DUK_LOCAL duk_ret_t duk__do_compile(duk_context *ctx) {
 DUK_EXTERNAL duk_int_t duk_compile_raw(duk_context *ctx, const char *src_buffer, duk_size_t src_length, duk_uint_t flags) {
 	duk__compile_raw_args comp_args_alloc;
 	duk__compile_raw_args *comp_args = &comp_args_alloc;
+
+	DUK_ASSERT_CTX_VALID(ctx);
 
 	if ((flags & DUK_COMPILE_STRLEN) && (src_buffer != NULL)) {
 		/* String length is computed here to avoid multiple evaluation

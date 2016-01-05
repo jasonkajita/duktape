@@ -188,7 +188,7 @@ def create_matrix(fn_duk):
 		# Some dialects and architectures are only available for newer g++ versions
 		Combine([
 			# -m32 with older llvm causes self test failure (double union)
-			Select([ 'llvm-gcc', 'llvm-gcc-4.7', 'llvm-gcc' ]),
+			Select([ 'llvm-gcc' ]),
 			Select([ '-m64' ]),
 			Select([
 				'',
@@ -221,7 +221,7 @@ def create_matrix(fn_duk):
 	gxx_cmd_dialect_options = Select([
 		# Some dialects and architectures are only available for newer g++ versions
 		Combine([
-			Select([ 'llvm-g++-4.7', 'llvm-g++-4.7' ]),
+			Select([ 'llvm-g++' ]),
 			Select([ '-m64' ]),
 			Select([
 				'',
@@ -262,7 +262,8 @@ def create_matrix(fn_duk):
 	gcc_gxx_warning_options = Select([
 		'',
 		#'-Wall',
-		[ '-Wall', '-Wextra' ]  # FIXME
+		[ '-Wall', '-Wextra' ]
+		#XXX: -Wfloat-equal
 		# [ '-Wall', '-Wextra', '-Werror' ]
 	])
 	gcc_gxx_optimization_options = Select([
@@ -284,7 +285,7 @@ def create_matrix(fn_duk):
 	clang_cmd_dialect_options = Select([
 		Combine([
 			'clang',
-			Select([ '-m64', '-m32', '-mx32' ]),
+			Select([ '-m64', '-m32' ]),
 			Select([
 				'',
 				'-std=c89',
@@ -299,11 +300,13 @@ def create_matrix(fn_duk):
 	])
 	clang_warning_options = Select([
 		'',
-		[ '-Wall', '-Wextra' ]  # FIXME
+		[ '-Wall', '-Wextra' ],
+		[ '-Wall', '-Wextra', '-Wcast-align' ]
+		#XXX: -Wfloat-equal
 		#[ '-Wall', '-Wextra', '-Werror' ]
 	])
 	clang_optimization_options = Select([
-		'-O0'
+		'-O0',
 		'-O1',
 		'-O2',
 		'-O3',
@@ -323,9 +326,9 @@ def create_matrix(fn_duk):
 		'-DDUK_OPT_DPRINT_COLORS',
 		'-DDUK_OPT_NO_PACKED_TVAL',
 		Select([ '', '-DDUK_OPT_FORCE_ALIGN=4', '-DDUK_OPT_FORCE_ALIGN=8' ]),
-		'-DDUK_OPT_DEEP_C_STACK',
 		'-DDUK_OPT_NO_TRACEBACKS',
 		'-DDUK_OPT_NO_VERBOSE_ERRORS',
+		'-DDUK_OPT_PARANOID_ERRORS',
 		'-DDUK_OPT_NO_MS_RESIZE_STRINGTABLE',
 		'-DDUK_OPT_NO_STRICT_DECL',
 		'-DDUK_OPT_NO_REGEXP_SUPPORT',
@@ -345,6 +348,7 @@ def create_matrix(fn_duk):
 		'-DDUK_OPT_NO_NONSTD_ARRAY_CONCAT_TRAILER',
 		'-DDUK_OPT_NO_NONSTD_ARRAY_MAP_TRAILER',
 		'-DDUK_OPT_NO_NONSTD_JSON_ESC_U2028_U2029',
+		'-DDUK_OPT_NO_BYTECODE_DUMP_SUPPORT',
 		'-DDUK_OPT_NO_ES6_OBJECT_PROTO_PROPERTY',
 		'-DDUK_OPT_NO_ES6_OBJECT_SETPROTOTYPEOF',
 		'-DDUK_OPT_NO_ES6_PROXY',
@@ -365,10 +369,15 @@ def create_matrix(fn_duk):
 		]),
 		'-DDUK_OPT_DEBUGGER_FWD_PRINTALERT',
 		'-DDUK_OPT_DEBUGGER_FWD_LOGGING',
-		'-DDUK_OPT_DEBUGGER_DUMPHEAP'
+		'-DDUK_OPT_DEBUGGER_DUMPHEAP',
+		'-DDUK_OPT_NO_DEBUGGER_THROW_NOTIFY',
+		'-DDUK_OPT_DEBUGGER_PAUSE_UNCAUGHT',
+		'-DDUK_OPT_JSON_STRINGIFY_FASTPATH'
 
 		# XXX: 16-bit options
 	])
+
+	# FIXME: DUK_USE_LEXER_SLIDING_WINDOW
 
 	# The final command is compiler specific because e.g. include path
 	# and link option syntax could (in principle) differ between compilers.
@@ -482,6 +491,7 @@ try { fibthrow(9); } catch (e) { print(e); }
 			print(' '.join(compile_command))
 
 		check_unlink(fn_duk)
+		#print(repr(compile_command))
 		compile_p = subprocess.Popen(compile_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 		compile_stdout, compile_stderr = compile_p.communicate()
 		compile_exitcode = compile_p.returncode

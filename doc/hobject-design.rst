@@ -936,8 +936,8 @@ The array part simply contains a sequence of tagged values::
   | value 0 |  Represents the array:
   | UNUSED  |    { "0": (value 0), "2": (value 2) }
   | value 2 |
-  | UNUSED  |  UNUSED = duk_tval 'undefined unused' value
-  | UNUSED  |           (DUK_TVAL_IS_UNDEFINED_UNUSED(tv))
+  | UNUSED  |  UNUSED = duk_tval 'unused' marker value
+  | UNUSED  |           (DUK_TVAL_IS_UNUSED(tv))
   +---------+
 
   Here, a_size = 5.
@@ -960,9 +960,8 @@ and moved to the entry part to maintain E5 semantics.
 
 All array entries are always reachable from a GC perspective, up to
 the allocated size, ``a_size``.  Unused values are marked with the special
-"undefined unused" value, set using the
-``DUK_TVAL_SET_UNDEFINED_UNUSED`` macro.  Any other entries, including
-"undefined actual" values, set using the ``DUK_TVAL_SET_UNDEFINED_ACTUAL``
+"unused" value, set using the ``DUK_TVAL_SET_UNUSED`` macro.  Any other
+entries, including "undefined" values, set using the ``DUK_TVAL_SET_UNDEFINED``
 macro, are considered to be in use, and their corresponding key is
 considered to exist in the object, and they are thus visible to enumeration.
 In the illustration above, values at indices "0" and "2" are considered used,
@@ -2150,10 +2149,9 @@ ES6 Proxy objects or Lua-like metatables
 It would be nice to have a Lua metatable like mechanism for creating
 custom object behavior extensions and full object virtualization,
 see http://www.lua.org/pil/13.html for a description of Lua metatables.
-There is a similar mechanism in the Ecmascript 6 draft called "Proxy
-object":
+There is a similar mechanism in Ecmascript 6 called "Proxy object":
 
-* https://people.mozilla.org/~jorendorff/es6-draft.html#sec-proxy-object-internal-methods-and-internal-slots
+* http://www.ecma-international.org/ecma-262/6.0/index.html#sec-proxy-object-internal-methods-and-internal-slots
 
 The ES6 Proxy object is of course a natural target for implementation,
 but it's not clear what the underlying mechanism should be: should the
@@ -2202,7 +2200,7 @@ There are many ES6 features which may need changes to the basic object model.
 
 For instance, there are keyed collections:
 
-* https://people.mozilla.org/~jorendorff/es6-draft.html#sec-keyed-collection
+* http://www.ecma-international.org/ecma-262/6.0/index.html#sec-keyed-collection
 
 The ``Map`` object provides an arbitrary collection of key/value pairs,
 where keys and values can be arbitrary Ecmascript objects.  This is very

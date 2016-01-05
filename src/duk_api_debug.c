@@ -8,6 +8,8 @@ DUK_EXTERNAL void duk_push_context_dump(duk_context *ctx) {
 	duk_idx_t idx;
 	duk_idx_t top;
 
+	DUK_ASSERT_CTX_VALID(ctx);
+
 	/* We don't duk_require_stack() here now, but rely on the caller having
 	 * enough space.
 	 */
@@ -51,7 +53,11 @@ DUK_EXTERNAL void duk_debugger_attach(duk_context *ctx,
 	const char *str;
 	duk_size_t len;
 
-	DUK_ASSERT(ctx != NULL);
+	/* XXX: should there be an error or an automatic detach if
+	 * already attached?
+	 */
+
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_ASSERT(read_cb != NULL);
 	DUK_ASSERT(write_cb != NULL);
 	/* Other callbacks are optional. */
@@ -64,11 +70,13 @@ DUK_EXTERNAL void duk_debugger_attach(duk_context *ctx,
 	heap->dbg_write_flush_cb = write_flush_cb;
 	heap->dbg_detached_cb = detached_cb;
 	heap->dbg_udata = udata;
+	heap->dbg_have_next_byte = 0;
 
 	/* Start in paused state. */
 	heap->dbg_processing = 0;
 	heap->dbg_paused = 1;
 	heap->dbg_state_dirty = 1;
+	heap->dbg_force_restart = 0;
 	heap->dbg_step_type = 0;
 	heap->dbg_step_thread = NULL;
 	heap->dbg_step_csindex = 0;
@@ -95,12 +103,12 @@ DUK_EXTERNAL void duk_debugger_attach(duk_context *ctx,
 DUK_EXTERNAL void duk_debugger_detach(duk_context *ctx) {
 	duk_hthread *thr;
 
+	DUK_ASSERT_CTX_VALID(ctx);
 	thr = (duk_hthread *) ctx;
-	DUK_ASSERT(ctx != NULL);
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT(thr->heap != NULL);
 
-	/* Can be called muliple times with no harm. */
+	/* Can be called multiple times with no harm. */
 	duk_debug_do_detach(thr->heap);
 }
 
@@ -108,8 +116,8 @@ DUK_EXTERNAL void duk_debugger_cooperate(duk_context *ctx) {
 	duk_hthread *thr;
 	duk_bool_t processed_messages;
 
+	DUK_ASSERT_CTX_VALID(ctx);
 	thr = (duk_hthread *) ctx;
-	DUK_ASSERT(ctx != NULL);
 	DUK_ASSERT(thr != NULL);
 	DUK_ASSERT(thr->heap != NULL);
 
@@ -140,6 +148,7 @@ DUK_EXTERNAL void duk_debugger_attach(duk_context *ctx,
                                       duk_debug_write_flush_function write_flush_cb,
                                       duk_debug_detached_function detached_cb,
                                       void *udata) {
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_UNREF(read_cb);
 	DUK_UNREF(write_cb);
 	DUK_UNREF(peek_cb);
@@ -147,15 +156,17 @@ DUK_EXTERNAL void duk_debugger_attach(duk_context *ctx,
 	DUK_UNREF(write_flush_cb);
 	DUK_UNREF(detached_cb);
 	DUK_UNREF(udata);
-	duk_error(ctx, DUK_ERR_API_ERROR, "no debugger support");
+	DUK_ERROR_API((duk_hthread *) ctx, "no debugger support");
 }
 
 DUK_EXTERNAL void duk_debugger_detach(duk_context *ctx) {
-	duk_error(ctx, DUK_ERR_API_ERROR, "no debugger support");
+	DUK_ASSERT_CTX_VALID(ctx);
+	DUK_ERROR_API((duk_hthread *) ctx, "no debugger support");
 }
 
 DUK_EXTERNAL void duk_debugger_cooperate(duk_context *ctx) {
 	/* nop */
+	DUK_ASSERT_CTX_VALID(ctx);
 	DUK_UNREF(ctx);
 }
 

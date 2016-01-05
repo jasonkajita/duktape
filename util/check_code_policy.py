@@ -32,8 +32,9 @@ re_nonleading_tab = re.compile(r'^.*?[^\t]\t.*?$')  # tabs are only used for ind
 re_identifier = re.compile(r'[A-Za-z0-9_]+')
 re_nonascii = re.compile(r'^.*?[\x80-\xff].*?$')
 re_func_decl_or_def = re.compile(r'^(\w+)\s+(?:\w+\s+)*(\w+)\(.*?.*?$')  # may not finish on same line
+re_cpp_comment = re.compile(r'^.*?//.*?$')
 
-# These identifiers are wrapped in duk_features.h.in, and should only be used
+# These identifiers are wrapped in duk_config.h, and should only be used
 # through the wrappers elsewhere.
 rejected_plain_identifiers_list = [
 	# math classification
@@ -141,19 +142,30 @@ re_repl_string_literals_squot = re.compile(r'''\'(?:\\\'|[^\'])*\'''')
 re_repl_expect_strings = re.compile(r'/\*===.*?===*?\*/', re.DOTALL)
 re_not_newline = re.compile(r'[^\n]+', re.DOTALL)
 
-def removeCommentsAndLiterals(data):
-	def repl_c(m):
-		tmp = re.sub(re_not_newline, '', m.group(0))
-		if tmp == '':
-			tmp = ' '  # avoid /**/
-		return '/*' + tmp + '*/'
-	def repl_cpp(m):
-		return '// removed\n'
-	def repl_dquot(m):
-		return '"' + ('.' * (len(m.group(0)) - 2)) + '"'
-	def repl_squot(m):
-		return "'" + ('.' * (len(m.group(0)) - 2)) + "'"
+def repl_c(m):
+	tmp = re.sub(re_not_newline, '', m.group(0))
+	if tmp == '':
+		tmp = ' '  # avoid /**/
+	return '/*' + tmp + '*/'
+def repl_cpp(m):
+	return '// removed\n'
+def repl_dquot(m):
+	return '"' + ('.' * (len(m.group(0)) - 2)) + '"'
+def repl_squot(m):
+	return "'" + ('.' * (len(m.group(0)) - 2)) + "'"
 
+def removeLiterals(data):
+	data = re.sub(re_repl_string_literals_dquot, repl_dquot, data)
+	data = re.sub(re_repl_string_literals_squot, repl_squot, data)
+	return data
+
+def removeCCommentsAndLiterals(data):
+	data = re.sub(re_repl_c_comments, repl_c, data)
+	data = re.sub(re_repl_string_literals_dquot, repl_dquot, data)
+	data = re.sub(re_repl_string_literals_squot, repl_squot, data)
+	return data
+
+def removeAnyCommentsAndLiterals(data):
 	data = re.sub(re_repl_c_comments, repl_c, data)
 	data = re.sub(re_repl_cpp_comments, repl_cpp, data)
 	data = re.sub(re_repl_string_literals_dquot, repl_dquot, data)
@@ -254,8 +266,7 @@ def checkIdentifiers(lines, idx, filename):
 	line = lines[idx]
 	# XXX: this now executes for every line which is pointless
 	bn = os.path.basename(filename)
-	excludePlain = (bn == 'duk_features.h.in' or \
-	                bn[0:5] == 'test-')
+	excludePlain = (bn[0:5] == 'test-')
 
 	for m in re.finditer(re_identifier, line):
 		if rejected_plain_identifiers.has_key(m.group(0)):
@@ -277,6 +288,12 @@ def checkNonAscii(lines, idx, filename):
 
 def checkNoSymbolVisibility(lines, idx, filename):
 	line = lines[idx]
+
+	# Workaround for DUK_ALWAYS_INLINE preceding a declaration
+	# (e.g. "DUK_ALWAYS_INLINE DUK_LOCAL ...")
+	if line.startswith('DUK_ALWAYS_INLINE '):
+		line = line[18:]
+
 	m = re_func_decl_or_def.match(line)
 	if m is None:
 		return
@@ -296,22 +313,30 @@ def checkNoSymbolVisibility(lines, idx, filename):
 		return
 
 	# Special exceptions
-	if bn == 'duk_features.h.in' and 'static __inline__' in line:
-		# duk_rdtsc(), gcc specific
-		return
+	# (None now)
 
 	raise Exception('missing symbol visibility macro')
 
-def processFile(filename, checkersRaw, checkersNoComments, checkersNoExpectStrings):
+def checkCppComment(lines, idx, filename):
+	line = lines[idx]
+	m = re_cpp_comment.match(line)
+	if m is None:
+		return
+
+	raise Exception('c++ comment')
+
+def processFile(filename, checkersRaw, checkersNoCommentsOrLiterals, checkersNoCCommentsOrLiterals, checkersNoExpectStrings):
 	f = open(filename, 'rb')
 	dataRaw = f.read()
 	f.close()
 
-	dataNoComments = removeCommentsAndLiterals(dataRaw)   # no c/javascript comments, literals removed
-	dataNoExpectStrings = removeExpectStrings(dataRaw)    # no testcase expect strings
+	dataNoCommentsOrLiterals = removeAnyCommentsAndLiterals(dataRaw)   # no C/javascript comments, literals removed
+	dataNoCCommentsOrLiterals = removeCCommentsAndLiterals(dataRaw)    # no C comments, literals removed
+	dataNoExpectStrings = removeExpectStrings(dataRaw)                 # no testcase expect strings
 
 	linesRaw = dataRaw.split('\n')
-	linesNoComments = dataNoComments.split('\n')
+	linesNoCommentsOrLiterals = dataNoCommentsOrLiterals.split('\n')
+	linesNoCCommentsOrLiterals = dataNoCCommentsOrLiterals.split('\n')
 	linesNoExpectStrings = dataNoExpectStrings.split('\n')
 
 	def f(lines, checkers):
@@ -323,7 +348,8 @@ def processFile(filename, checkersRaw, checkersNoComments, checkersNoExpectStrin
 					problems.append(Problem(filename, linenumber + 1, lines[linenumber], str(e)))
 
 	f(linesRaw, checkersRaw)
-	f(linesNoComments, checkersNoComments)
+	f(linesNoCommentsOrLiterals, checkersNoCommentsOrLiterals)
+	f(linesNoCCommentsOrLiterals, checkersNoCCommentsOrLiterals)
 	f(linesNoExpectStrings, checkersNoExpectStrings)
 
 	# Last line should have a newline, and there should not be an empty line.
@@ -347,25 +373,50 @@ def asciiOnly(x):
 def main():
 	parser = optparse.OptionParser()
 	parser.add_option('--dump-vim-commands', dest='dump_vim_commands', default=False, help='Dump oneline vim command')
+	parser.add_option('--check-debug-log-calls', dest='check_debug_log_calls', action='store_true', default=False, help='Check debug log call consistency')
+	parser.add_option('--check-carriage-returns', dest='check_carriage_returns', action='store_true', default=False, help='Check carriage returns')
+	parser.add_option('--check-fixme', dest='check_fixme', action='store_true', default=False, help='Check FIXME tags')
+	parser.add_option('--check-non-ascii', dest='check_non_ascii', action='store_true', default=False, help='Check non-ASCII characters')
+	parser.add_option('--check-no-symbol-visibility', dest='check_no_symbol_visibility', action='store_true', default=False, help='Check for missing symbol visibility macros')
+	parser.add_option('--check-rejected-identifiers', dest='check_rejected_identifiers', action='store_true', default=False, help='Check for rejected identifiers like plain "printf()" calls')
+	parser.add_option('--check-trailing-whitespace', dest='check_trailing_whitespace', action='store_true', default=False, help='Check for trailing whitespace')
+	parser.add_option('--check-mixed-indent', dest='check_mixed_indent', action='store_true', default=False, help='Check for mixed indent (space and tabs)')
+	parser.add_option('--check-nonleading-tab', dest='check_nonleading_tab', action='store_true', default=False, help='Check for non-leading tab characters')
+	parser.add_option('--check-cpp-comment', dest='check_cpp_comment', action='store_true', default=False, help='Check for c++ comments ("// ...")')
+	parser.add_option('--fail-on-errors', dest='fail_on_errors', action='store_true', default=False, help='Fail on errors (exit code != 0)')
+
 	(opts, args) = parser.parse_args()
 
 	checkersRaw = []
-	checkersRaw.append(checkDebugLogCalls)
-	checkersRaw.append(checkCarriageReturns)
-	checkersRaw.append(checkFixme)
-	checkersRaw.append(checkNonAscii)
-	checkersRaw.append(checkNoSymbolVisibility)
+	if opts.check_debug_log_calls:
+		checkersRaw.append(checkDebugLogCalls)
+	if opts.check_carriage_returns:
+		checkersRaw.append(checkCarriageReturns)
+	if opts.check_fixme:
+		checkersRaw.append(checkFixme)
+	if opts.check_non_ascii:
+		checkersRaw.append(checkNonAscii)
+	if opts.check_no_symbol_visibility:
+		checkersRaw.append(checkNoSymbolVisibility)
 
-	checkersNoComments = []
-	checkersNoComments.append(checkIdentifiers)
+	checkersNoCCommentsOrLiterals = []
+	if opts.check_cpp_comment:
+		checkersNoCCommentsOrLiterals.append(checkCppComment)
+
+	checkersNoCommentsOrLiterals = []
+	if opts.check_rejected_identifiers:
+		checkersNoCommentsOrLiterals.append(checkIdentifiers)
 
 	checkersNoExpectStrings = []
-	checkersNoExpectStrings.append(checkTrailingWhitespace)
-	checkersNoExpectStrings.append(checkMixedIndent)
-	checkersNoExpectStrings.append(checkNonLeadingTab)
+	if opts.check_trailing_whitespace:
+		checkersNoExpectStrings.append(checkTrailingWhitespace)
+	if opts.check_mixed_indent:
+		checkersNoExpectStrings.append(checkMixedIndent)
+	if opts.check_nonleading_tab:
+		checkersNoExpectStrings.append(checkNonLeadingTab)
 
 	for filename in args:
-		processFile(filename, checkersRaw, checkersNoComments, checkersNoExpectStrings)
+		processFile(filename, checkersRaw, checkersNoCommentsOrLiterals, checkersNoCCommentsOrLiterals, checkersNoExpectStrings)
 
 	if len(problems) > 0:
 		for i in problems:
@@ -387,7 +438,8 @@ def main():
 			print ''
 			print('; '.join(cmds))
 
-		sys.exit(1)
+		if opts.fail_on_errors:
+			sys.exit(1)
 
 	sys.exit(0)
 

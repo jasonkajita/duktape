@@ -5,8 +5,8 @@
 - Print
 - Alert
 - Log
-- Gc
-- Reserved_6
+- Throw
+- Detaching
 - Reserved_7
 - Reserved_8
 - Reserved_9

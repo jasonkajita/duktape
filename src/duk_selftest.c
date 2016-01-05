@@ -17,13 +17,13 @@ typedef union {
 } duk__test_double_union;
 
 #define DUK__DBLUNION_CMP_TRUE(a,b)  do { \
-		if (DUK_MEMCMP((void *) (a), (void *) (b), sizeof(duk__test_double_union)) != 0) { \
+		if (DUK_MEMCMP((const void *) (a), (const void *) (b), sizeof(duk__test_double_union)) != 0) { \
 			DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: double union compares false (expected true)"); \
 		} \
 	} while (0)
 
 #define DUK__DBLUNION_CMP_FALSE(a,b)  do { \
-		if (DUK_MEMCMP((void *) (a), (void *) (b), sizeof(duk__test_double_union)) == 0) { \
+		if (DUK_MEMCMP((const void *) (a), (const void *) (b), sizeof(duk__test_double_union)) == 0) { \
 			DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: double union compares true (expected false)"); \
 		} \
 	} while (0)
@@ -83,7 +83,11 @@ DUK_LOCAL void duk__selftest_packed_tval(void) {
 DUK_LOCAL void duk__selftest_twos_complement(void) {
 	volatile int test;
 	test = -1;
-	if (((duk_uint8_t *) &test)[0] != (duk_uint8_t) 0xff) {
+
+	/* Note that byte order doesn't affect this test: all bytes in
+	 * 'test' will be 0xFF for two's complement.
+	 */
+	if (((volatile duk_uint8_t *) &test)[0] != (duk_uint8_t) 0xff) {
 		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: two's complement arithmetic");
 	}
 }
@@ -162,7 +166,7 @@ DUK_LOCAL void duk__selftest_bswap_macros(void) {
 
 	du.uc[0] = 0x40; du.uc[1] = 0x00; du.uc[2] = 0x11; du.uc[3] = 0x22;
 	du.uc[4] = 0x33; du.uc[5] = 0x44; du.uc[6] = 0x55; du.uc[7] = 0x66;
-	DUK_DBLUNION_BSWAP(&du);
+	DUK_DBLUNION_DOUBLE_NTOH(&du);
 	du_diff = du.d - 2.008366013071895;
 #if 0
 	DUK_FPRINTF(DUK_STDERR, "du_diff: %lg\n", (double) du_diff);
@@ -173,13 +177,13 @@ DUK_LOCAL void duk__selftest_bswap_macros(void) {
 		 * Linux gcc-4.8 -m32 at least).
 		 */
 #if 0
-		DUK_FPRINTF(DUK_STDERR, "Result of DUK_DBLUNION_BSWAP: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+		DUK_FPRINTF(DUK_STDERR, "Result of DUK_DBLUNION_DOUBLE_NTOH: %02x %02x %02x %02x %02x %02x %02x %02x\n",
 		            (unsigned int) du.uc[0], (unsigned int) du.uc[1],
 		            (unsigned int) du.uc[2], (unsigned int) du.uc[3],
 		            (unsigned int) du.uc[4], (unsigned int) du.uc[5],
 		            (unsigned int) du.uc[6], (unsigned int) du.uc[7]);
 #endif
-		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: DUK_DBLUNION_BSWAP");
+		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: DUK_DBLUNION_DOUBLE_NTOH");
 	}
 }
 
@@ -204,15 +208,12 @@ DUK_LOCAL void duk__selftest_double_aliasing(void) {
 	 * It's not an issue because the failure should only affect packed
 	 * duk_tval representation, which is not used with Emscripten.
 	 */
-#if defined(DUK_USE_NO_DOUBLE_ALIASING_SELFTEST)
-#if defined(DUK_USE_PACKED_TVAL)
-#error inconsistent defines: skipping double aliasing selftest when using packed duk_tval
-#endif
+#if !defined(DUK_USE_PACKED_TVAL)
+	DUK_D(DUK_DPRINT("skip double aliasing self test when duk_tval is not packed"));
 	return;
 #endif
 
-	/* Test signaling NaN and alias assignment in all
-	 * endianness combinations.
+	/* Test signaling NaN and alias assignment in all endianness combinations.
 	 */
 
 	/* little endian */
@@ -239,7 +240,7 @@ DUK_LOCAL void duk__selftest_double_aliasing(void) {
  */
 
 DUK_LOCAL void duk__selftest_double_zero_sign(void) {
-	volatile duk__test_double_union a, b;
+	duk__test_double_union a, b;
 
 	a.d = 0.0;
 	b.d = -a.d;
@@ -254,16 +255,18 @@ DUK_LOCAL void duk__selftest_double_zero_sign(void) {
  */
 
 DUK_LOCAL void duk__selftest_struct_align(void) {
-#if defined(DUK_USE_ALIGN_4)
+#if (DUK_USE_ALIGN_BY == 4)
 	if ((sizeof(duk_hbuffer_fixed) % 4) != 0) {
 		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: sizeof(duk_hbuffer_fixed) not aligned to 4");
 	}
-#elif defined(DUK_USE_ALIGN_8)
+#elif (DUK_USE_ALIGN_BY == 8)
 	if ((sizeof(duk_hbuffer_fixed) % 8) != 0) {
 		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: sizeof(duk_hbuffer_fixed) not aligned to 8");
 	}
-#else
+#elif (DUK_USE_ALIGN_BY == 1)
 	/* no check */
+#else
+#error invalid DUK_USE_ALIGN_BY
 #endif
 }
 
@@ -294,7 +297,7 @@ DUK_LOCAL void duk__selftest_64bit_arithmetic(void) {
  *  Casting
  */
 
-DUK_LOCAL void duk__selftest_cast_double_to_uint(void) {
+DUK_LOCAL void duk__selftest_cast_double_to_small_uint(void) {
 	/*
 	 *  https://github.com/svaarala/duktape/issues/127#issuecomment-77863473
 	 */
@@ -305,12 +308,14 @@ DUK_LOCAL void duk__selftest_cast_double_to_uint(void) {
 	duk_double_t d1v, d2v;
 	duk_small_uint_t uv;
 
+	/* Test without volatiles */
+
 	d1 = 1.0;
 	u = (duk_small_uint_t) d1;
 	d2 = (duk_double_t) u;
 
 	if (!(d1 == 1.0 && u == 1 && d2 == 1.0 && d1 == d2)) {
-		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: double to uint cast failed");
+		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: double to duk_small_uint_t cast failed");
 	}
 
 	/* Same test with volatiles */
@@ -320,7 +325,26 @@ DUK_LOCAL void duk__selftest_cast_double_to_uint(void) {
 	d2v = (duk_double_t) uv;
 
 	if (!(d1v == 1.0 && uv == 1 && d2v == 1.0 && d1v == d2v)) {
-		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: double to uint cast failed");
+		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: double to duk_small_uint_t cast failed");
+	}
+}
+
+DUK_LOCAL void duk__selftest_cast_double_to_uint32(void) {
+	/*
+	 *  This test fails on an exotic ARM target; double-to-uint
+	 *  cast is incorrectly clamped to -signed- int highest value.
+	 *
+	 *  https://github.com/svaarala/duktape/issues/336
+	 */
+
+	duk_double_t dv;
+	duk_uint32_t uv;
+
+	dv = 3735928559.0;  /* 0xdeadbeef in decimal */
+	uv = (duk_uint32_t) dv;
+
+	if (uv != 0xdeadbeefUL) {
+		DUK_PANIC(DUK_ERR_INTERNAL_ERROR, "self test failed: double to duk_uint32_t cast failed");
 	}
 }
 
@@ -339,7 +363,8 @@ DUK_INTERNAL void duk_selftest_run_tests(void) {
 	duk__selftest_double_zero_sign();
 	duk__selftest_struct_align();
 	duk__selftest_64bit_arithmetic();
-	duk__selftest_cast_double_to_uint();
+	duk__selftest_cast_double_to_small_uint();
+	duk__selftest_cast_double_to_uint32();
 }
 
 #undef DUK__DBLUNION_CMP_TRUE

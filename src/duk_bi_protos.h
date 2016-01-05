@@ -13,11 +13,6 @@
  */
 #define  DUK_BI_DATE_ISO8601_BUFSIZE  48
 
-/* Buffer size for "short log message" which use a heap-level pre-allocated
- * dynamic buffer to reduce memory churn.
- */
-#define  DUK_BI_LOGGER_SHORT_MSG_LIMIT  256
-
 /* Maximum length of CommonJS module identifier to resolve.  Length includes
  * both current module ID, requested (possibly relative) module ID, and a
  * slash in between.
@@ -44,8 +39,30 @@ DUK_INTERNAL_DECL duk_ret_t duk_bi_array_prototype_reduce_shared(duk_context *ct
 DUK_INTERNAL_DECL duk_ret_t duk_bi_boolean_constructor(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_boolean_prototype_tostring_shared(duk_context *ctx);
 
+/* XXX: naming is inconsistent with other builtins, "prototype" not used as
+ * part of function name.
+ */
 DUK_INTERNAL_DECL duk_ret_t duk_bi_buffer_constructor(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_buffer_prototype_tostring_shared(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_buffer_readfield(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_buffer_writefield(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_buffer_compare_shared(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_buffer_slice_shared(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_arraybuffer_constructor(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_arraybuffer_isview(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_dataview_constructor(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_typedarray_constructor(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_typedarray_set(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_constructor(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_concat(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_is_encoding(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_is_buffer(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_byte_length(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_tostring(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_tojson(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_fill(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_copy(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_nodejs_buffer_write(duk_context *ctx);
 
 DUK_INTERNAL_DECL duk_ret_t duk_bi_date_constructor(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_date_constructor_parse(duk_context *ctx);
@@ -59,8 +76,38 @@ DUK_INTERNAL_DECL duk_ret_t duk_bi_date_prototype_get_timezone_offset(duk_contex
 DUK_INTERNAL_DECL duk_ret_t duk_bi_date_prototype_set_shared(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_date_prototype_set_time(duk_context *ctx);
 /* Helpers exposed for internal use */
-DUK_INTERNAL_DECL duk_double_t duk_bi_date_get_now(duk_context *ctx);
+DUK_INTERNAL_DECL void duk_bi_date_timeval_to_parts(duk_double_t d, duk_int_t *parts, duk_double_t *dparts, duk_small_uint_t flags);
+DUK_INTERNAL_DECL duk_double_t duk_bi_date_get_timeval_from_dparts(duk_double_t *dparts, duk_small_uint_t flags);
 DUK_INTERNAL_DECL void duk_bi_date_format_timeval(duk_double_t timeval, duk_uint8_t *out_buf);
+DUK_INTERNAL_DECL duk_bool_t duk_bi_date_is_leap_year(duk_int_t year);
+DUK_INTERNAL_DECL duk_bool_t duk_bi_date_timeval_in_valid_range(duk_double_t x);
+DUK_INTERNAL_DECL duk_bool_t duk_bi_date_year_in_valid_range(duk_double_t year);
+DUK_INTERNAL_DECL duk_bool_t duk_bi_date_timeval_in_leeway_range(duk_double_t x);
+/* Built-in providers */
+#if defined(DUK_USE_DATE_NOW_GETTIMEOFDAY)
+DUK_INTERNAL_DECL duk_double_t duk_bi_date_get_now_gettimeofday(duk_context *ctx);
+#endif
+#if defined(DUK_USE_DATE_NOW_TIME)
+DUK_INTERNAL_DECL duk_double_t duk_bi_date_get_now_time(duk_context *ctx);
+#endif
+#if defined(DUK_USE_DATE_NOW_WINDOWS)
+DUK_INTERNAL_DECL duk_double_t duk_bi_date_get_now_windows(duk_context *ctx);
+#endif
+#if defined(DUK_USE_DATE_TZO_GMTIME_R) || defined(DUK_USE_DATE_TZO_GMTIME)
+DUK_INTERNAL_DECL duk_int_t duk_bi_date_get_local_tzoffset_gmtime(duk_double_t d);
+#endif
+#if defined(DUK_USE_DATE_TZO_WINDOWS)
+DUK_INTERNAL_DECL duk_int_t duk_bi_date_get_local_tzoffset_windows(duk_double_t d);
+#endif
+#if defined(DUK_USE_DATE_PRS_STRPTIME)
+DUK_INTERNAL_DECL duk_bool_t duk_bi_date_parse_string_strptime(duk_context *ctx, const char *str);
+#endif
+#if defined(DUK_USE_DATE_PRS_GETDATE)
+DUK_INTERNAL_DECL duk_bool_t duk_bi_date_parse_string_getdate(duk_context *ctx, const char *str);
+#endif
+#if defined(DUK_USE_DATE_FMT_STRFTIME)
+DUK_INTERNAL_DECL duk_bool_t duk_bi_date_format_parts_strftime(duk_context *ctx, duk_int_t *parts, duk_int_t tzoffset, duk_small_uint_t flags);
+#endif
 
 DUK_INTERNAL_DECL duk_ret_t duk_bi_duktape_object_info(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_duktape_object_act(duk_context *ctx);
@@ -75,7 +122,9 @@ DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_to_string(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_stack_getter(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_filename_getter(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_linenumber_getter(duk_context *ctx);
-DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_nop_setter(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_stack_setter(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_filename_setter(duk_context *ctx);
+DUK_INTERNAL_DECL duk_ret_t duk_bi_error_prototype_linenumber_setter(duk_context *ctx);
 
 DUK_INTERNAL_DECL duk_ret_t duk_bi_function_constructor(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_function_prototype(duk_context *ctx);
@@ -169,7 +218,7 @@ DUK_INTERNAL_DECL duk_ret_t duk_bi_string_prototype_split(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_string_prototype_substring(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_string_prototype_caseconv_shared(duk_context *ctx);
 DUK_INTERNAL_DECL duk_ret_t duk_bi_string_prototype_trim(duk_context *ctx);
-/* Note: present even if DUK_OPT_NO_SECTION_B given because genbuiltins.py
+/* Note: present even if DUK_USE_SECTION_B undefined given because genbuiltins.py
  * will point to it.
  */
 DUK_INTERNAL_DECL duk_ret_t duk_bi_string_prototype_substr(duk_context *ctx);

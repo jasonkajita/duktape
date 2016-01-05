@@ -2,6 +2,9 @@
 # - See duk_debug.js for the argument formats (A_R etc).
 # - Flag bits are for the whole instruction as a 32-bit integer,
 #   they are not field shifted
+#
+# NOTE: Use YAML comments only on comment-only lines (not trailing content):
+# Node.js 'yamljs' seems to refuse parsing trailing comments in some cases.
 
 opcodes:
   - name: LDREG
@@ -240,8 +243,6 @@ opcodes:
       - B_RC
     flags:
       - mask: 0x40
-        name: fast_return
-      - mask: 0x80
         name: have_retval
   - name: CALL
     args:
@@ -261,8 +262,10 @@ opcodes:
   - name: TRYCATCH
     args:
       - A_H
-      - B_R
-      - C_I  # semantics depend on flags, so dump as integer
+      # base register for two consecutive regs (base_reg + 0, base_reg + 1) used for two things:
+      # - input: either 'with' target register or catch varname constant (base_reg + 0), depending on flags
+      # - output: when caught, catch value (base_reg + 0) and type (base_reg + 1)
+      - BC_R
     flags:
       - mask: 0x40
         name: have_catch
@@ -349,10 +352,12 @@ extra:
       - BC_R
   - name: NEWOBJ
     args:
-      - B_R   # XXX: extend to BC?
+      # XXX: extend to BC?
+      - B_R
   - name: NEWARR
     args:
-      - B_R   # XXX: extend to BC?
+      # XXX: extend to BC?
+      - B_R
   - name: SETALEN
     args:
       - B_R
@@ -363,7 +368,8 @@ extra:
   - name: TYPEOFID
     args:
       - B_R
-      - C_RC  # maybe changed to C_C later
+      # maybe changed to C_C later
+      - C_RC
   - name: INITENUM
     args:
       - B_R

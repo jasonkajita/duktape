@@ -14,7 +14,8 @@
 <p id="dukweb-intro">Works in Chrome/Chromium/Firefox.  There is much to
 improve in the Duktape/browser bindings and errors are not handled nicely
 yet, so keep your Javascript Console open.  Also note that this page takes
-a few seconds to (re)load.</p>
+a few seconds to (re)load.  You can embed code in the Dukweb link as a
+fragment identifier: <a href="http://duktape.org/dukweb.html#print('Hello%20world!')%3B">http://duktape.org/dukweb.html#print('Hello%20world!')%3B</a>.</p>
 
 <div id="dukweb-input-wrapper">
 <textarea id="dukweb-input">
@@ -78,23 +79,53 @@ function dukwebSetup() {
         $('#dukweb-output').text('');
         dukwebOutput = [];
         var code = $('#dukweb-input').val();
-        try {
-            var res = Duktape.eval(code);
-            dukwebAppendOutput('==> ' + res + '\n');
-        } catch (e) {
-            dukwebAppendOutput('==> ' + (e.stack || e) + '\n');
+        if (code.length < 65536 && location) {
+            // Although Firefox automatically decodes location.hash, this
+            // still seems to work.
+            location.hash = encodeURIComponent(code);
         }
+        setTimeout(function () {
+            try {
+                var res = Duktape.eval(code);
+                dukwebAppendOutput('==> ' + res + '\n');
+            } catch (e) {
+                dukwebAppendOutput('==> ' + (e.stack || e) + '\n');
+            }
+        }, 1);  // sleep to allow hash to update immediately
     });
 }
-try {
-    dukwebSetup();
-} catch (e) {
-    $('#dukweb-output')
-        .addClass('error')
-        .text(
-            'Dukweb.js initialization failed (perhaps your browser is not compatible?):\n\n' +
-            String(e.stack || e) + '\n\n');
-}
+
+$(document).ready(function () {
+    function checkUriCode() {
+        // In some browsers location.hash is automatically decoded and in
+        // others it is not.  This is more portable:
+        // http://stackoverflow.com/questions/4835784/firefox-automatically-decoding-encoded-parameter-in-url-does-not-happen-in-ie
+        if (location && location.href && location.href.indexOf('#') >= 0) {
+            var code = location.href.substring(location.href.indexOf('#') + 1);
+            $('#dukweb-input').val(decodeURIComponent(code));
+        }
+/*
+        if (location && location.hash && location.hash[0] === '#') {
+            $('#dukweb-input').val(decodeURIComponent(location.hash.substring(1)));
+        }
+*/
+    }
+    try {
+        checkUriCode();
+    } catch (e) {
+        alert(e);
+    }
+
+    try {
+        dukwebSetup();
+    } catch (e) {
+        $('#dukweb-output')
+            .addClass('error')
+            .text(
+                'Dukweb.js initialization failed (perhaps your browser is not compatible?):\n\n' +
+                String(e.stack || e) + '\n\n');
+    }
+});
 
 //]]>
 </script>

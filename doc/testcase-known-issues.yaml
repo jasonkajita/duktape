@@ -1,4 +1,4 @@
-# Ecmascript testcase (ecmascript-testcases/) known issues
+# Ecmascript testcase (tests/ecmascript/) known issues
 
 -
   test: "test-bi-date-tzoffset-brute-fi.js"
@@ -6,9 +6,6 @@
 -
   test: "test-bi-global-parseint.js"
   knownissue: "rounding differences for parsing integers larger than 2^53"
--
-  test: "test-bi-global-parseint-oct.js"
-  knownissue: "non-standard octal behavior does not match V8/Rhino"
 -
   test: "test-bi-json-dec-types.js"
   knownissue: "'\\x' should be allowed by eval() but not by JSON.parse(), Duktape rejects '\\x' in both"
@@ -31,9 +28,6 @@
   test: "test-bug-enum-shadow-nonenumerable.js"
   knownissue: "corner case enumeration semantics, not sure what correct behavior is (test262 ch12/12.6/12.6.4/12.6.4-2)"
 -
-  test: "test-bug-error-linenumber-2.js"
-  knownissue: "in corner cases (related to automatic semicolon insertion) throw statement error linenumber can be unexpected"
--
   test: "test-bug-invalid-oct-as-dec.js"
   knownissue: "V8/Rhino parse invalid octal constants as decimal values, Duktape doesn't at the moment"
 -
@@ -48,12 +42,6 @@
 -
   test: "test-bug-tonumber-u0000.js"
   knownissue: "'\\u0000' should ToNumber() coerce to NaN, but now coerces to zero like an empty string"
--
-  test: "test-bug-trycatch-many-constants.js"
-  knownissue: "out of regs for try-catch in functions with a lot of constants"
--
-  test: "test-conv-number-tostring-tonumber-roundtrip.js"
-  knownissue: "rounding corner cases"
 -
   test: "test-dev-bound-thread-start-func.js"
   knownissue: "initial function of a new coroutine cannot be bound"
@@ -93,6 +81,12 @@
 -
   test: "test-bi-array-push-maxlen.js"
   knownissue: "array length above 2^32-1 not supported"
+-
+  test: "test-bug-dataview-buffer-prop.js"
+  knownissue: "DataView .buffer property misleading when DataView argument is not an ArrayBuffer (custom behavior)"
+-
+  test: "test-bi-json-enc-proxy.js"
+  knownissue: "JSON enumeration behavior for Proxy targets is incomplete and uses 'enumerate' trap instead of 'ownKeys' trap"
 
 # Ecmascript testcases that need special options or environment to work
 
@@ -129,8 +123,11 @@
 -
   test: "test-dev-nonstd-setget-key-argument.js"
   specialoptions: "should work with default options, but will break with DUK_OPT_NO_NONSTD_ACCESSOR_KEY_ARGUMENT"
+-
+  test: "test-bi-typedarray-nan-handling.js"
+  specialoptions: "NaN sign is platform dependent"
 
-# API testcase known issues
+# API testcase (tests/api/) known issues
 
 -
   test: "test-to-number.c"

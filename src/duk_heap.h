@@ -19,6 +19,7 @@
 #define DUK_HEAP_FLAG_REFZERO_FREE_RUNNING                     (1 << 2)  /* refcount code is processing refzero list */
 #define DUK_HEAP_FLAG_ERRHANDLER_RUNNING                       (1 << 3)  /* an error handler (user callback to augment/replace error) is running */
 #define DUK_HEAP_FLAG_INTERRUPT_RUNNING                        (1 << 4)  /* executor interrupt running (used to avoid nested interrupts) */
+#define DUK_HEAP_FLAG_FINALIZER_NORESCUE                       (1 << 5)  /* heap destruction ongoing, finalizer rescue no longer possible */
 
 #define DUK__HEAP_HAS_FLAGS(heap,bits)               ((heap)->flags & (bits))
 #define DUK__HEAP_SET_FLAGS(heap,bits)  do { \
@@ -33,31 +34,34 @@
 #define DUK_HEAP_HAS_REFZERO_FREE_RUNNING(heap)            DUK__HEAP_HAS_FLAGS((heap), DUK_HEAP_FLAG_REFZERO_FREE_RUNNING)
 #define DUK_HEAP_HAS_ERRHANDLER_RUNNING(heap)              DUK__HEAP_HAS_FLAGS((heap), DUK_HEAP_FLAG_ERRHANDLER_RUNNING)
 #define DUK_HEAP_HAS_INTERRUPT_RUNNING(heap)               DUK__HEAP_HAS_FLAGS((heap), DUK_HEAP_FLAG_INTERRUPT_RUNNING)
+#define DUK_HEAP_HAS_FINALIZER_NORESCUE(heap)              DUK__HEAP_HAS_FLAGS((heap), DUK_HEAP_FLAG_FINALIZER_NORESCUE)
 
 #define DUK_HEAP_SET_MARKANDSWEEP_RUNNING(heap)            DUK__HEAP_SET_FLAGS((heap), DUK_HEAP_FLAG_MARKANDSWEEP_RUNNING)
 #define DUK_HEAP_SET_MARKANDSWEEP_RECLIMIT_REACHED(heap)   DUK__HEAP_SET_FLAGS((heap), DUK_HEAP_FLAG_MARKANDSWEEP_RECLIMIT_REACHED)
 #define DUK_HEAP_SET_REFZERO_FREE_RUNNING(heap)            DUK__HEAP_SET_FLAGS((heap), DUK_HEAP_FLAG_REFZERO_FREE_RUNNING)
 #define DUK_HEAP_SET_ERRHANDLER_RUNNING(heap)              DUK__HEAP_SET_FLAGS((heap), DUK_HEAP_FLAG_ERRHANDLER_RUNNING)
 #define DUK_HEAP_SET_INTERRUPT_RUNNING(heap)               DUK__HEAP_SET_FLAGS((heap), DUK_HEAP_FLAG_INTERRUPT_RUNNING)
+#define DUK_HEAP_SET_FINALIZER_NORESCUE(heap)              DUK__HEAP_SET_FLAGS((heap), DUK_HEAP_FLAG_FINALIZER_NORESCUE)
 
 #define DUK_HEAP_CLEAR_MARKANDSWEEP_RUNNING(heap)          DUK__HEAP_CLEAR_FLAGS((heap), DUK_HEAP_FLAG_MARKANDSWEEP_RUNNING)
 #define DUK_HEAP_CLEAR_MARKANDSWEEP_RECLIMIT_REACHED(heap) DUK__HEAP_CLEAR_FLAGS((heap), DUK_HEAP_FLAG_MARKANDSWEEP_RECLIMIT_REACHED)
 #define DUK_HEAP_CLEAR_REFZERO_FREE_RUNNING(heap)          DUK__HEAP_CLEAR_FLAGS((heap), DUK_HEAP_FLAG_REFZERO_FREE_RUNNING)
 #define DUK_HEAP_CLEAR_ERRHANDLER_RUNNING(heap)            DUK__HEAP_CLEAR_FLAGS((heap), DUK_HEAP_FLAG_ERRHANDLER_RUNNING)
 #define DUK_HEAP_CLEAR_INTERRUPT_RUNNING(heap)             DUK__HEAP_CLEAR_FLAGS((heap), DUK_HEAP_FLAG_INTERRUPT_RUNNING)
+#define DUK_HEAP_CLEAR_FINALIZER_NORESCUE(heap)            DUK__HEAP_CLEAR_FLAGS((heap), DUK_HEAP_FLAG_FINALIZER_NORESCUE)
 
 /*
  *  Longjmp types, also double as identifying continuation type for a rethrow (in 'finally')
  */
 
 #define DUK_LJ_TYPE_UNKNOWN      0    /* unused */
-#define DUK_LJ_TYPE_RETURN       1    /* value1 -> return value */
-#define DUK_LJ_TYPE_THROW        2    /* value1 -> error object */
-#define DUK_LJ_TYPE_BREAK        3    /* value1 -> label number */
-#define DUK_LJ_TYPE_CONTINUE     4    /* value1 -> label number */
-#define DUK_LJ_TYPE_YIELD        5    /* value1 -> yield value, iserror -> error / normal */
-#define DUK_LJ_TYPE_RESUME       6    /* value1 -> resume value, value2 -> resumee thread, iserror -> error/normal */
-#define DUK_LJ_TYPE_NORMAL       7    /* pseudo-type to indicate a normal continuation (for 'finally' rethrowing) */
+#define DUK_LJ_TYPE_THROW        1    /* value1 -> error object */
+#define DUK_LJ_TYPE_YIELD        2    /* value1 -> yield value, iserror -> error / normal */
+#define DUK_LJ_TYPE_RESUME       3    /* value1 -> resume value, value2 -> resumee thread, iserror -> error/normal */
+#define DUK_LJ_TYPE_BREAK        4    /* value1 -> label number, pseudo-type to indicate a break continuation (for ENDFIN) */
+#define DUK_LJ_TYPE_CONTINUE     5    /* value1 -> label number, pseudo-type to indicate a continue continuation (for ENDFIN) */
+#define DUK_LJ_TYPE_RETURN       6    /* value1 -> return value, pseudo-type to indicate a return continuation (for ENDFIN) */
+#define DUK_LJ_TYPE_NORMAL       7    /* no value, pseudo-type to indicate a normal continuation (for ENDFIN) */
 
 /*
  *  Mark-and-sweep flags
@@ -69,8 +73,9 @@
 
 #define DUK_MS_FLAG_EMERGENCY                (1 << 0)   /* emergency mode: try extra hard */
 #define DUK_MS_FLAG_NO_STRINGTABLE_RESIZE    (1 << 1)   /* don't resize stringtable (but may sweep it); needed during stringtable resize */
-#define DUK_MS_FLAG_NO_FINALIZERS            (1 << 2)   /* don't run finalizers (which may have arbitrary side effects) */
-#define DUK_MS_FLAG_NO_OBJECT_COMPACTION     (1 << 3)   /* don't compact objects; needed during object property allocation resize */
+#define DUK_MS_FLAG_NO_OBJECT_COMPACTION     (1 << 2)   /* don't compact objects; needed during object property allocation resize */
+#define DUK_MS_FLAG_NO_FINALIZERS            (1 << 3)   /* don't run finalizers; leave finalizable objects in finalize_list for next round */
+#define DUK_MS_FLAG_SKIP_FINALIZERS          (1 << 4)   /* don't run finalizers; queue finalizable objects back to heap_allocated */
 
 /*
  *  Thread switching
@@ -91,31 +96,6 @@
 /*
  *  Other heap related defines
  */
-
-/* Maximum duk_handle_call / duk_handle_safe_call depth.  Note that this
- * does not limit bytecode executor internal call depth at all (e.g.
- * for Ecmascript-to-Ecmascript calls, thread yields/resumes, etc).
- * There is a separate callstack depth limit for threads.
- */
-
-#if defined(DUK_USE_DEEP_C_STACK)
-#define DUK_HEAP_DEFAULT_CALL_RECURSION_LIMIT             1000  /* assuming 0.5 kB between calls, about 500kB of stack */
-#else
-#define DUK_HEAP_DEFAULT_CALL_RECURSION_LIMIT             60    /* assuming 0.5 kB between calls, about 30kB of stack */
-#endif
-
-/* Mark-and-sweep C recursion depth for marking phase; if reached,
- * mark object as a TEMPROOT and use multi-pass marking.
- */
-#if defined(DUK_USE_MARK_AND_SWEEP)
-#if defined(DUK_USE_GC_TORTURE)
-#define DUK_HEAP_MARK_AND_SWEEP_RECURSION_LIMIT   3
-#elif defined(DUK_USE_DEEP_C_STACK)
-#define DUK_HEAP_MARK_AND_SWEEP_RECURSION_LIMIT   256
-#else
-#define DUK_HEAP_MARK_AND_SWEEP_RECURSION_LIMIT   32
-#endif
-#endif
 
 /* Mark-and-sweep interval is relative to combined count of objects and
  * strings kept in the heap during the latest mark-and-sweep pass.
@@ -147,14 +127,6 @@
 
 /* helper to insert a (non-string) heap object into heap allocated list */
 #define DUK_HEAP_INSERT_INTO_HEAP_ALLOCATED(heap,hdr)     duk_heap_insert_into_heap_allocated((heap),(hdr))
-
-/* Executor interrupt default interval when nothing else requires a
- * smaller value.  The default interval must be small enough to allow
- * for reasonable execution timeout checking.
- */
-#if defined(DUK_USE_INTERRUPT_COUNTER)
-#define DUK_HEAP_INTCTR_DEFAULT                           (256L * 1024L)
-#endif
 
 /*
  *  Stringtable
@@ -330,7 +302,9 @@ struct duk_strcache {
  */
 
 struct duk_ljstate {
+#if !defined(DUK_USE_CPP_EXCEPTIONS)
 	duk_jmpbuf *jmpbuf_ptr;   /* current setjmp() catchpoint */
+#endif
 	duk_small_uint_t type;    /* longjmp type */
 	duk_bool_t iserror;       /* isError flag for yield */
 	duk_tval value1;          /* 1st related value (type specific) */
@@ -431,9 +405,6 @@ struct duk_heap {
 	/* heap level "stash" object (e.g., various reachability roots) */
 	duk_hobject *heap_object;
 
-	/* heap level temporary log formatting buffer */
-	duk_hbuffer_dynamic *log_buffer;
-
 	/* duk_handle_call / duk_handle_safe_call recursion depth limiting */
 	duk_int_t call_recursion_depth;
 	duk_int_t call_recursion_limit;
@@ -444,10 +415,13 @@ struct duk_heap {
 	/* rnd_state for duk_util_tinyrandom.c */
 	duk_uint32_t rnd_state;
 
-	/* interrupt counter */
-#if defined(DUK_USE_INTERRUPT_COUNTER)
-	duk_int_t interrupt_init;       /* start value for current countdown */
-	duk_int_t interrupt_counter;    /* countdown state (mirrored in current thread state) */
+	/* For manual debugging: instruction count based on executor and
+	 * interrupt counter book-keeping.  Inspect debug logs to see how
+	 * they match up.
+	 */
+#if defined(DUK_USE_INTERRUPT_COUNTER) && defined(DUK_USE_DEBUG)
+	duk_int_t inst_count_exec;
+	duk_int_t inst_count_interrupt;
 #endif
 
 	/* debugger */
@@ -466,6 +440,8 @@ struct duk_heap {
 	duk_bool_t dbg_processing;              /* currently processing messages or breakpoints: don't enter message processing recursively (e.g. no breakpoints when processing debugger eval) */
 	duk_bool_t dbg_paused;                  /* currently paused: talk with debug client until step/resume */
 	duk_bool_t dbg_state_dirty;             /* resend state next time executor is about to run */
+	duk_bool_t dbg_force_restart;           /* force executor restart to recheck breakpoints; used to handle function returns (see GH-303) */
+	duk_bool_t dbg_detaching;               /* debugger detaching; used to avoid calling detach handler recursively */
 	duk_small_uint_t dbg_step_type;         /* step type: none, step into, step over, step out */
 	duk_hthread *dbg_step_thread;           /* borrowed; NULL if no step state (NULLed in unwind) */
 	duk_size_t dbg_step_csindex;            /* callstack index */
@@ -479,6 +455,10 @@ struct duk_heap {
 	duk_uint32_t dbg_exec_counter;          /* cumulative opcode execution count (overflows are OK) */
 	duk_uint32_t dbg_last_counter;          /* value of dbg_exec_counter when we last did a Date-based check */
 	duk_double_t dbg_last_time;             /* time when status/peek was last done (Date-based rate limit) */
+
+	/* Used to support single-byte stream lookahead. */
+	duk_bool_t dbg_have_next_byte;
+	duk_uint8_t dbg_next_byte;
 #endif
 
 	/* string intern table (weak refs) */
@@ -546,7 +526,9 @@ DUK_INTERNAL_DECL duk_hstring *duk_heap_string_lookup_u32(duk_heap *heap, duk_ui
 #endif
 DUK_INTERNAL_DECL duk_hstring *duk_heap_string_intern_u32(duk_heap *heap, duk_uint32_t val);
 DUK_INTERNAL_DECL duk_hstring *duk_heap_string_intern_u32_checked(duk_hthread *thr, duk_uint32_t val);
+#if defined(DUK_USE_REFERENCE_COUNTING)
 DUK_INTERNAL_DECL void duk_heap_string_remove(duk_heap *heap, duk_hstring *h);
+#endif
 #if defined(DUK_USE_MARK_AND_SWEEP) && defined(DUK_USE_MS_STRINGTABLE_RESIZE)
 DUK_INTERNAL_DECL void duk_heap_force_strtab_resize(duk_heap *heap);
 #endif

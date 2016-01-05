@@ -1,7 +1,7 @@
 <h1 id="custombehavior">Custom behavior</h1>
 
-<p>This section summarizes Duktape behavior which deviates from the E5.1
-specification.</p>
+<p>This section summarizes Duktape behavior which deviates from the E5.1 or
+other relevant specifications.</p>
 
 <h2>Duktape built-in and custom types</h2>
 
@@ -21,6 +21,12 @@ use invalid UTF-8 (<code>0xFF</code> prefix byte).</p>
 
 <p>The <a href="#use-duk-notail">"use duk notail"</a> directive is non-standard.
 It prevents a function from being tail called.</p>
+
+<h2>"const" treated mostly like "var"</h2>
+
+<p>The <code>const</code> keyword is supported with minimal non-standard
+semantics (officially defined in Ecmascript 6).  See
+<a href="#es6-const">Const variables</a> for more detail.</p>
 
 <h2>The global require() function for module loading</h2>
 
@@ -116,7 +122,7 @@ be enabled with the feature option <code>DUK_OPT_NO_NONSTD_ARRAY_SPLICE_DELCOUNT
 elements, the standard behavior is to ignore them so that they are not reflected in
 the result <code>length</code>.  Real world behavior is to include them in the result
 value <code>length</code>.  See
-<a href="https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/test-bi-array-proto-concat-nonstd-trailing.js">test-bi-array-proto-concat-nonstd-trailing.js</a>.</p>
+<a href="https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-bi-array-proto-concat-nonstd-trailing.js">test-bi-array-proto-concat-nonstd-trailing.js</a>.</p>
 
 <p>The real world behavior seems consistent in other engines (V8, Rhino, Spidermonkey
 at least), so Duktape uses the real world behavior by default.  The strict standards compliant
@@ -125,7 +131,7 @@ behavior can be enabled with the feature option <code>DUK_OPT_NO_NONSTD_ARRAY_CO
 <h2>Array.prototype.map() trailing non-existent elements</h2>
 
 <p>Similar issue as with <code>Array.prototype.concat()</code>, see
-<a href="https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/test-bi-array-proto-map-nonstd-trailing.js">test-bi-array-proto-map-nonstd-trailing.js</a>.  The strict standards compliant behavior can be
+<a href="https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-bi-array-proto-map-nonstd-trailing.js">test-bi-array-proto-map-nonstd-trailing.js</a>.  The strict standards compliant behavior can be
 enabled with the feature option <code>DUK_OPT_NO_NONSTD_ARRAY_MAP_TRAILER</code>.</p>
 
 <h2>Setter/getter key argument</h2>
@@ -137,16 +143,16 @@ for each property which is sometimes inconvenient and wastes memory.</p>
 
 <p>Duktape provides the property key name as a non-standard additional
 argument to setter and getter functions.  See
-<a href="https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/test-dev-nonstd-setget-key-argument.js">test-dev-nonstd-setget-key-argument.js</a>
+<a href="https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-dev-nonstd-setget-key-argument.js">test-dev-nonstd-setget-key-argument.js</a>
 and <a href="#propertyvirtualization">Property virtualization</a>
 for more discussion.  The strict standards compliant behavior can be enabled
 with the feature option <code>DUK_OPT_NO_NONSTD_ACCESSOR_KEY_ARGUMENT</code>.</p>
 
-<h2>Object.setPrototypeOf and Object.prototype.__proto__ (ES6 draft)</h2>
+<h2>Object.setPrototypeOf and Object.prototype.__proto__ (ES6)</h2>
 
 <p>See <a href="#es6-proto">Object.setPrototypeOf and Object.prototype.__proto__</a>.</p>
 
-<h2>Proxy object (ES6 draft subset)</h2>
+<h2>Proxy object (ES6)</h2>
 
 <p>See <a href="#es6-proxy">Proxy object (subset)</a>.</p>
 
@@ -178,4 +184,57 @@ non-compliant, but there's no outward difference unless Array.prototype has
 properties with numeric keys.  You can turn on the compliant behavior with
 the feature option <code>DUK_OPT_NO_NONSTD_ARRAY_WRITE</code>.  See the
 following for more details on the fast path behavior:
-<a href="https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/test-misc-array-fast-write.js">test-misc-array-fast-write.js</a>.</p>
+<a href="https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-misc-array-fast-write.js">test-misc-array-fast-write.js</a>.</p>
+
+<h2 id="typedarray-custombehavior">TypedArray binding</h2>
+
+<p>Duktape provides a Khronos/ES6 TypedArray binding.  The scope of the
+binding is the Khronos specification, not the full ES6 specification.
+There are some differences to Khronos/ES6, including:</p>
+<ul>
+<li>Interoperability with other buffer types: Duktape.Buffer or Node.js
+    Buffer is allowed wherever an ArrayBuffer or a view object would be
+    allowed.</li>
+<li>Small differences in argument coercion e.g. for offset and length
+    values.</li>
+<li>ArrayBuffer has numeric indices (behaving like Uint8Array), and
+    additional <code>length</code> (matching <code>byteLength</code>),
+    <code>byteOffset</code> (= 0), and <code>BYTES_PER_ELEMENT</code> (= 1)
+    properties.</li>
+<li>TypedArray <code>subarray()</code> returns a typed array object whose
+    internal prototype is copied from the argument rather than being set
+    to the default prototype for that view, such as <code>Uint8Array.prototype</code>.</li>
+</ul>
+
+<h2 id="nodejsbuffer-custombehavior">Node.js Buffer binding</h2>
+
+<p>Duktape provides a Node.js-like <code>Buffer</code> binding.  There are
+some differences between the Node.js behavior and Duktape behavior.  These
+differences include:</p>
+<ul>
+<li>Interoperability with other buffer types: Duktape.Buffer, ArrayBuffer,
+    DataView, or a typed array (Uint8Array etc) is allowed wherever a Node.js
+    Buffer would be allowed.</li>
+<li>Buffer data is always zeroed on allocation and when concatenation
+    <code>totalLength</code> exceeds combined size of input buffers.</li>
+<li>Read/write offset and length arguments are always validated to ensure
+    memory safe behavior, even when <code>noAssert</code> is true.  Failed
+    reads return NaN and failed writes return 0.</li>
+<li>Partial read/writes are never done: if a read/write is partially
+    outside the valid buffer, it is rejected.</li>
+<li>Small differences in argument coercion for e.g. offset and length
+    values.</li>
+<li>Write calls coerce their value argument like TypedArray, e.g. when
+    writing 0x100 using <code>writeUInt8()</code> silently coerces to
+    0x00 rather than throwing a TypeError.</li>
+<li>Duktape only supports the <code>utf8</code> encoding (and accepts no
+    spelling variants).  Most API calls ignore an encoding argument, and
+    use the Duktape internal string representation (CESU-8 / extended UTF-8)
+    for string-to-buffer conversion.</li>
+<li>Node.js Buffer has additional <code>byteLength</code> (matching
+    <code>length</code>), <code>byteOffset</code> (= 0), and
+    <code>BYTES_PER_ELEMENT</code> (= 1) properties.</li>
+<li>Node.js Buffer internal class is "Buffer" so
+    <code>Object.prototype.toString.call(buf)</code> outputs
+    <code>[object Buffer]</code> rather than <code>[object Object]</code>.</li>
+</ul>

@@ -57,13 +57,14 @@
 
 union duk_double_union {
 	double d;
-#ifdef DUK_USE_64BIT_OPS
+	float f[2];
+#if defined(DUK_USE_64BIT_OPS)
 	duk_uint64_t ull[1];
 #endif
 	duk_uint32_t ui[2];
 	duk_uint16_t us[4];
 	duk_uint8_t uc[8];
-#ifdef DUK_USE_PACKED_TVAL_POSSIBLE
+#if defined(DUK_USE_PACKED_TVAL)
 	void *vp[2];  /* used by packed duk_tval, assumes sizeof(void *) == 4 */
 #endif
 };
@@ -202,7 +203,7 @@ typedef union duk_double_union duk_double_union;
  *
  *  When packed duk_tval is used, the NaN space is used to store pointers
  *  and other tagged values in addition to NaNs.  Actual NaNs are normalized
- *  to a specific format.  The macros below are used by the implementation
+ *  to a specific quiet NaN.  The macros below are used by the implementation
  *  to check and normalize NaN values when they might be created.  The macros
  *  are essentially NOPs when the non-packed duk_tval representation is used.
  *
@@ -210,7 +211,8 @@ typedef union duk_double_union duk_double_union;
  *  the packed duk_tval and works correctly for all NaNs except those that
  *  begin with 0x7ff0.  Since the 'normalized NaN' values used with packed
  *  duk_tval begin with 0x7ff8, the partial check is reliable when packed
- *  duk_tval is used.
+ *  duk_tval is used.  The 0x7ff8 prefix means the normalized NaN will be a
+ *  quiet NaN regardless of its remaining lower bits.
  *
  *  The ME variant below is specifically for ARM byte order, which has the
  *  feature that while doubles have a mixed byte order (32107654), unsigned
@@ -328,9 +330,24 @@ typedef union duk_double_union duk_double_union;
 	} while (0)
 #endif  /* DUK_USE_PACKED_TVAL */
 
-/* Byteswap an (aligned) duk_double_union. */
+/* XXX: native 64-bit byteswaps when available */
+
+/* 64-bit byteswap, same operation independent of target endianness. */
+#define DUK_DBLUNION_BSWAP64(u) do { \
+		duk_uint32_t duk__bswaptmp1, duk__bswaptmp2; \
+		duk__bswaptmp1 = (u)->ui[0]; \
+		duk__bswaptmp2 = (u)->ui[1]; \
+		duk__bswaptmp1 = DUK_BSWAP32(duk__bswaptmp1); \
+		duk__bswaptmp2 = DUK_BSWAP32(duk__bswaptmp2); \
+		(u)->ui[0] = duk__bswaptmp2; \
+		(u)->ui[1] = duk__bswaptmp1; \
+	} while (0)
+
+/* Byteswap an IEEE double in the duk_double_union from host to network
+ * order.  For a big endian target this is a no-op.
+ */
 #if defined(DUK_USE_DOUBLE_LE)
-#define DUK_DBLUNION_BSWAP(u) do { \
+#define DUK_DBLUNION_DOUBLE_HTON(u) do { \
 		duk_uint32_t duk__bswaptmp1, duk__bswaptmp2; \
 		duk__bswaptmp1 = (u)->ui[0]; \
 		duk__bswaptmp2 = (u)->ui[1]; \
@@ -340,7 +357,7 @@ typedef union duk_double_union duk_double_union;
 		(u)->ui[1] = duk__bswaptmp1; \
 	} while (0)
 #elif defined(DUK_USE_DOUBLE_ME)
-#define DUK_DBLUNION_BSWAP(u) do { \
+#define DUK_DBLUNION_DOUBLE_HTON(u) do { \
 		duk_uint32_t duk__bswaptmp1, duk__bswaptmp2; \
 		duk__bswaptmp1 = (u)->ui[0]; \
 		duk__bswaptmp2 = (u)->ui[1]; \
@@ -350,9 +367,12 @@ typedef union duk_double_union duk_double_union;
 		(u)->ui[1] = duk__bswaptmp2; \
 	} while (0)
 #elif defined(DUK_USE_DOUBLE_BE)
-#define DUK_DBLUNION_BSWAP(u) do { } while (0)
+#define DUK_DBLUNION_DOUBLE_HTON(u) do { } while (0)
 #else
 #error internal error, double endianness insane
 #endif
+
+/* Reverse operation is the same. */
+#define DUK_DBLUNION_DOUBLE_NTOH(u) DUK_DBLUNION_DOUBLE_HTON((u))
 
 #endif  /* DUK_DBLUNION_H_INCLUDED */

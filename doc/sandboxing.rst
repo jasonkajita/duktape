@@ -79,6 +79,20 @@ Pros and cons of using a Duktape thread for sandboxing:
 These two approaches can of course be mixed: you can have multiple heaps,
 each with one or more sandboxed threads.
 
+Disable verbose errors
+----------------------
+
+Verbose error messages may cause sandboxing security issues:
+
+* When DUK_USE_PARANOID_ERRORS is not set, offending object/key is summarized
+  in an error message of some rejected property operations.  If object keys
+  contain potentially sensitive information, you should enable this option.
+
+* When stack traces are enabled an attacker may gain useful information from
+  the stack traces.  Further, access to the internal ``_Tracedata`` property
+  provides access to call chain functions even when references to them are not
+  available directly.
+
 Replace the global object
 -------------------------
 
@@ -202,7 +216,9 @@ Suggestions for sandboxing:
   reference directly.
 
 * Write finalizers very carefully.  Make minimal assumptions on which
-  thread they run, i.e. which global object they see.
+  thread they run, i.e. which global object they see.  It's also best
+  practice to tolerate re-entry (although Duktape 1.4.0 and above has
+  a guarantee of no re-entry unless object is rescued).
 
 * For sandboxed environments it may be sensible to make all finalizers
   native code so that they can access the necessary thread contexts
@@ -331,6 +347,37 @@ Particular issues to look out for:
   higher level.  For instance, an API call must not allow sandboxed code
   to perform unauthenticated database writes or breach memory safety
   through file I/O on a Unix device file.
+
+Use bytecode dump/load carefully
+--------------------------------
+
+Because Duktape doesn't validate bytecode being loaded, loading invalid
+bytecode may lead to memory unsafe behavior -- even exploitable
+vulnerabilities.  To avoid such issues:
+
+* Use bytecode dump/load only when it is really necessary e.g. for
+  performance.  An alternative to bytecode dump/load is to compile
+  on-the-fly which is usually not a performance bottleneck.  You can
+  use e.g. minification to obfuscate code.
+
+* Ensure bytecode being loaded has been compiled with the same Duktape
+  version and same Duktape configuration options.  Major and minor versions
+  must match; patch version may vary as bytecode format doesn't change in
+  patch versions.
+
+* Ensure integrity of bytecode being loaded e.g. by checksumming.
+
+* If bytecode is transported over the network or other unsafe media,
+  use cryptographic means (keyed hashing, signatures, or similar) to
+  ensure an attacker cannot cause crafted bytecode to be loaded.
+
+Bytecode dump/load is only available through the C API, so there are
+no direct sandboxing considerations for executing Ecmascript code.
+However, if a Duktape/C function uses bytecode dump/load, ensure that
+it doesn't accidentally expose the facility to Ecmascript code.
+
+See ``bytecode.rst`` for more discussion on bytecode limitations and
+best practices.
 
 Bytecode execution timeout details
 ==================================

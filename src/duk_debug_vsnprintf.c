@@ -388,7 +388,7 @@ DUK_LOCAL void duk__print_hobject(duk__dprint_state *st, duk_hobject *h) {
 			/* leave out trailing 'unused' elements */
 			while (a_limit > 0) {
 				tv = DUK_HOBJECT_A_GET_VALUE_PTR(NULL, h, a_limit - 1);
-				if (!DUK_TVAL_IS_UNDEFINED_UNUSED(tv)) {
+				if (!DUK_TVAL_IS_UNUSED(tv)) {
 					break;
 				}
 				a_limit--;
@@ -508,7 +508,7 @@ DUK_LOCAL void duk__print_hobject(duk__dprint_state *st, duk_hobject *h) {
 		} else {
 			;
 		}
-		if (DUK_HOBJECT_HAS_EXOTIC_BUFFEROBJ(h)) {
+		if (DUK_HOBJECT_IS_BUFFEROBJECT(h)) {
 			DUK__COMMA(); duk_fb_sprintf(fb, "__special_bufferobj:true");
 		} else {
 			;
@@ -536,6 +536,14 @@ DUK_LOCAL void duk__print_hobject(duk__dprint_state *st, duk_hobject *h) {
 		DUK__COMMA(); duk_fb_sprintf(fb, "__func:");
 		duk_fb_put_funcptr(fb, (duk_uint8_t *) &f->func, sizeof(f->func));
 		DUK__COMMA(); duk_fb_sprintf(fb, "__nargs:%ld", (long) f->nargs);
+	} else if (st->internal && DUK_HOBJECT_IS_BUFFEROBJECT(h)) {
+		duk_hbufferobject *b = (duk_hbufferobject *) h;
+		DUK__COMMA(); duk_fb_sprintf(fb, "__buf:");
+		duk__print_hbuffer(st, (duk_hbuffer *) b->buf);
+		DUK__COMMA(); duk_fb_sprintf(fb, "__offset:%ld", (long) b->offset);
+		DUK__COMMA(); duk_fb_sprintf(fb, "__length:%ld", (long) b->length);
+		DUK__COMMA(); duk_fb_sprintf(fb, "__shift:%ld", (long) b->shift);
+		DUK__COMMA(); duk_fb_sprintf(fb, "__elemtype:%ld", (long) b->elem_type);
 	} else if (st->internal && DUK_HOBJECT_IS_THREAD(h)) {
 		duk_hthread *t = (duk_hthread *) h;
 		DUK__COMMA(); duk_fb_sprintf(fb, "__strict:%ld", (long) t->strict);
@@ -619,11 +627,17 @@ DUK_LOCAL void duk__print_hbuffer(duk__dprint_state *st, duk_hbuffer *h) {
 	}
 
 	if (DUK_HBUFFER_HAS_DYNAMIC(h)) {
-		duk_hbuffer_dynamic *g = (duk_hbuffer_dynamic *) h;
-		duk_fb_sprintf(fb, "buffer:dynamic:%p:%ld:%ld",
-		               (void *) DUK_HBUFFER_DYNAMIC_GET_DATA_PTR(NULL, g),
-		               (long) DUK_HBUFFER_DYNAMIC_GET_SIZE(g),
-		               (long) DUK_HBUFFER_DYNAMIC_GET_ALLOC_SIZE(g));
+		if (DUK_HBUFFER_HAS_EXTERNAL(h)) {
+			duk_hbuffer_external *g = (duk_hbuffer_external *) h;
+			duk_fb_sprintf(fb, "buffer:external:%p:%ld",
+			               (void *) DUK_HBUFFER_EXTERNAL_GET_DATA_PTR(NULL, g),
+			               (long) DUK_HBUFFER_EXTERNAL_GET_SIZE(g));
+		} else {
+			duk_hbuffer_dynamic *g = (duk_hbuffer_dynamic *) h;
+			duk_fb_sprintf(fb, "buffer:dynamic:%p:%ld",
+			               (void *) DUK_HBUFFER_DYNAMIC_GET_DATA_PTR(NULL, g),
+			               (long) DUK_HBUFFER_DYNAMIC_GET_SIZE(g));
+		}
 	} else {
 		duk_fb_sprintf(fb, "buffer:fixed:%ld", (long) DUK_HBUFFER_GET_SIZE(h));
 	}
@@ -703,11 +717,11 @@ DUK_LOCAL void duk__print_tval(duk__dprint_state *st, duk_tval *tv) {
 	}
 	switch (DUK_TVAL_GET_TAG(tv)) {
 	case DUK_TAG_UNDEFINED: {
-		if (DUK_TVAL_IS_UNDEFINED_UNUSED(tv)) {
-			duk_fb_put_cstring(fb, "unused");
-		} else {
-			duk_fb_put_cstring(fb, "undefined");
-		}
+		duk_fb_put_cstring(fb, "undefined");
+		break;
+	}
+	case DUK_TAG_UNUSED: {
+		duk_fb_put_cstring(fb, "unused");
 		break;
 	}
 	case DUK_TAG_NULL: {
@@ -750,6 +764,7 @@ DUK_LOCAL void duk__print_tval(duk__dprint_state *st, duk_tval *tv) {
 #endif
 	default: {
 		/* IEEE double is approximately 16 decimal digits; print a couple extra */
+		DUK_ASSERT(!DUK_TVAL_IS_UNUSED(tv));
 		DUK_ASSERT(DUK_TVAL_IS_NUMBER(tv));
 		duk_fb_sprintf(fb, "%.18g", (double) DUK_TVAL_GET_NUMBER(tv));
 		break;

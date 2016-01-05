@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /*
  *  Minimal debug web console for Duktape command line tool
  *
@@ -37,7 +36,7 @@ var optTargetPort = 9091;
 var optHttpPort = 9092;
 var optJsonProxyPort = 9093;
 var optJsonProxy = false;
-var optSourceSearchDirs = [ '../ecmascript-testcases' ];
+var optSourceSearchDirs = [ '../tests/ecmascript' ];
 var optDumpDebugRead = null;
 var optDumpDebugWrite = null;
 var optDumpDebugPretty = null;
@@ -54,6 +53,8 @@ var CMD_STATUS = 0x01;
 var CMD_PRINT = 0x02;
 var CMD_ALERT = 0x03;
 var CMD_LOG = 0x04;
+var CMD_THROW = 0x05;
+var CMD_DETACHING = 0x06;
 
 // Commands initiated by the debug client (= us)
 var CMD_BASICINFO = 0x10;
@@ -1205,16 +1206,16 @@ Debugger.prototype.sendBasicInfoRequest = function () {
     });
 };
 
-Debugger.prototype.sendGetVarRequest = function (varname) {
+Debugger.prototype.sendGetVarRequest = function (varname, level) {
     var _this = this;
-    return this.sendRequest([ DVAL_REQ, CMD_GETVAR, varname, DVAL_EOM ]).then(function (msg) {
+    return this.sendRequest([ DVAL_REQ, CMD_GETVAR, varname, (typeof level === 'number' ? level : -1), DVAL_EOM ]).then(function (msg) {
         return { found: msg[1] === 1, value: msg[2] };
     });
 };
 
-Debugger.prototype.sendPutVarRequest = function (varname, varvalue) {
+Debugger.prototype.sendPutVarRequest = function (varname, varvalue, level) {
     var _this = this;
-    return this.sendRequest([ DVAL_REQ, CMD_PUTVAR, varname, varvalue, DVAL_EOM ]);
+    return this.sendRequest([ DVAL_REQ, CMD_PUTVAR, varname, varvalue, (typeof level === 'number' ? level : -1), DVAL_EOM ]);
 };
 
 Debugger.prototype.sendInvalidCommandTestRequest = function () {
@@ -1246,9 +1247,9 @@ Debugger.prototype.sendBreakpointListRequest = function () {
     });
 };
 
-Debugger.prototype.sendGetLocalsRequest = function () {
+Debugger.prototype.sendGetLocalsRequest = function (level) {
     var _this = this;
-    return this.sendRequest([ DVAL_REQ, CMD_GETLOCALS, DVAL_EOM ]).then(function (msg) {
+    return this.sendRequest([ DVAL_REQ, CMD_GETLOCALS, (typeof level === 'number' ? level : -1), DVAL_EOM ]).then(function (msg) {
         var i;
         var locals = [];
 
@@ -1309,9 +1310,9 @@ Debugger.prototype.sendResumeRequest = function () {
     return this.sendRequest([ DVAL_REQ, CMD_RESUME, DVAL_EOM ]);
 };
 
-Debugger.prototype.sendEvalRequest = function (evalInput) {
+Debugger.prototype.sendEvalRequest = function (evalInput, level) {
     var _this = this;
-    return this.sendRequest([ DVAL_REQ, CMD_EVAL, evalInput, DVAL_EOM ]).then(function (msg) {
+    return this.sendRequest([ DVAL_REQ, CMD_EVAL, evalInput, (typeof level === 'number' ? level : -1), DVAL_EOM ]).then(function (msg) {
         return { error: msg[1] === 1 /*error*/, value: msg[2] };
     });
 };
@@ -1346,7 +1347,6 @@ Debugger.prototype.sendDumpHeapRequest = function () {
                 o.data = msg[i++];
             } else if (o.type === DUK_HTYPE_BUFFER) {
                 o.len = msg[i++];
-                o.alloc = msg[i++];
                 o.data = msg[i++];
             } else if (o.type === DUK_HTYPE_OBJECT) {
                 o['class'] = msg[i++];
@@ -1404,6 +1404,7 @@ Debugger.prototype.sendGetBytecodeRequest = function () {
         var bcode;
         var preformatted;
         var ret;
+        var idxPreformattedInstructions;
 
         //console.log(JSON.stringify(msg));
 
@@ -1433,6 +1434,7 @@ Debugger.prototype.sendGetBytecodeRequest = function () {
             preformatted.push('; c' + i + ' ' + JSON.stringify(v));
         });
         preformatted.push('');
+        idxPreformattedInstructions = preformatted.length;
         bcode.forEach(function (v) {
             preformatted.push(v.str);
         });
@@ -1442,7 +1444,8 @@ Debugger.prototype.sendGetBytecodeRequest = function () {
             constants: consts,
             functions: funcs,
             bytecode: bcode,
-            preformatted: preformatted
+            preformatted: preformatted,
+            idxPreformattedInstructions: idxPreformattedInstructions
         };
 
         return ret;
@@ -1698,9 +1701,15 @@ Debugger.prototype.processDebugMessage = function (msg) {
             this.uiMessage('alert', prettyUiStringUnquoted(msg[2], UI_MESSAGE_CLIPLEN));
         } else if (msg[1] === CMD_LOG) {
             this.uiMessage({ type: 'log', level: msg[2], message: prettyUiStringUnquoted(msg[3], UI_MESSAGE_CLIPLEN) });
+        } else if (msg[1] === CMD_THROW) {
+            this.uiMessage({ type: 'throw', fatal: msg[2], message: (msg[2] ? 'UNCAUGHT: ' : 'THROW: ') + prettyUiStringUnquoted(msg[3], UI_MESSAGE_CLIPLEN), fileName: msg[4], lineNumber: msg[5] });
+        } else if (msg[1] === CMD_DETACHING) {
+            this.uiMessage({ type: 'detaching', reason: msg[2], message: 'DETACH: ' + (msg.length >= 5 ? prettyUiStringUnquoted(msg[3]) : 'detaching') });
         } else {
-            console.log('Unknown notify, dropping connection: ' + prettyDebugMessage(msg));
-            this.targetStream.destroy();
+            // Ignore unknown notify messages
+            console.log('Unknown notify, ignoring: ' + prettyDebugMessage(msg));
+
+            //this.targetStream.destroy();
         }
     } else {
         console.log('Invalid initial dvalue, dropping connection: ' + prettyDebugMessage(msg));
@@ -1948,14 +1957,18 @@ DebugWebServer.prototype.handleNewSocketIoConnection = function (socket) {
         // msg.input is a proper Unicode strings here, and needs to be
         // converted into a protocol string (U+0000...U+00FF).
         var input = stringToDebugString(msg.input);
-        _this.dbg.sendEvalRequest(input).then(function (v) {
+        _this.dbg.sendEvalRequest(input, msg.level).then(function (v) {
             socket.emit('eval-result', { error: v.error, result: prettyUiDebugValue(v.value, EVAL_CLIPLEN) });
         });
 
         // An eval call quite possibly changes the local variables so always
-        // re-read locals afterwards.  We don't need to wait for eval() to
+        // re-read locals afterwards.  We don't need to wait for Eval to
         // complete here; the requests will pipeline automatically and be
         // executed in order.
+
+        // XXX: move this to the web UI so that the UI can control what
+        // locals are listed (or perhaps show locals for all levels with
+        // an expandable tree view).
         _this.dbg.sendGetLocalsRequest();
     });
 
@@ -1963,7 +1976,7 @@ DebugWebServer.prototype.handleNewSocketIoConnection = function (socket) {
         // msg.varname is a proper Unicode strings here, and needs to be
         // converted into a protocol string (U+0000...U+00FF).
         var varname = stringToDebugString(msg.varname);
-        _this.dbg.sendGetVarRequest(varname)
+        _this.dbg.sendGetVarRequest(varname, msg.level)
         .then(function (v) {
             socket.emit('getvar-result', { found: v.found, result: prettyUiDebugValue(v.value, GETVAR_CLIPLEN) });
         });
@@ -1981,15 +1994,17 @@ DebugWebServer.prototype.handleNewSocketIoConnection = function (socket) {
             varvalue = stringToDebugString(msg.varvalue);
         }
 
-        _this.dbg.sendPutVarRequest(varname, varvalue)
+        _this.dbg.sendPutVarRequest(varname, varvalue, msg.level)
         .then(function (v) {
             console.log('putvar done');  // XXX: signal success to UI?
         });
 
         // A PutVar call quite possibly changes the local variables so always
-        // re-read locals afterwards.  We don't need to wait for eval() to
+        // re-read locals afterwards.  We don't need to wait for PutVar to
         // complete here; the requests will pipeline automatically and be
         // executed in order.
+
+        // XXX: make the client do this?
         _this.dbg.sendGetLocalsRequest();
     });
 

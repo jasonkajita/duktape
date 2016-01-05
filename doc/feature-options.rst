@@ -5,20 +5,36 @@ Duktape feature options
 Overview
 ========
 
-The effective set of Duktape features is resolved in three steps:
+The effective set of Duktape features is resolved in three steps in Duktape 1.x
+(this process will change in Duktape 2.x):
 
 * User defines ``DUK_OPT_xxx`` feature options.  These are essentially
-  requests to enable/disable some feature.
+  requests to enable/disable some feature.  (These will be removed in
+  Duktape 2.x and ``DUK_USE_xxx`` flags will be used directly.)
 
-* Duktape feature resolution in ``duk_features.h.in`` takes into account
-  the requested features, the platform, the compiler, the operating system
+* Duktape feature resolution in the default "auto-detecting" ``duk_config.h``
+  (previously internal ``duk_features.h.in``) takes into account the
+  requested features, the platform, the compiler, the operating system
   etc, and defines ``DUK_USE_xxx`` internal use flags.  Other parts of
   Duktape only listen to these "use flags", so that feature resolution is
   strictly contained.
 
-* User may optionally have a ``duk_custom.h`` header which can further
-  tweak the effective ``DUK_USE_xxx`` defines.  This is a last resort and
-  is somewhat fragile.  See ``DUK_OPT_HAVE_CUSTOM_H`` for more discussion.
+* The final ``DUK_USE_xxx`` flags can be tweaked in several ways:
+
+  - The generated ``duk_config.h`` header can be edited directly (manually,
+    through scripting, etc).
+
+  - The ``genconfig`` utility can be used to generate a ``duk_config.h``
+    header with user-supplied option overrides given either as YAML config
+    file(s) or C header snippets included in the config header.
+
+  - User may optionally have a ``duk_custom.h`` header which can tweak the
+    defines (see ``DUK_OPT_HAVE_CUSTOM_H`` for more discussion; this feature
+    option will be removed in Duktape 2.x.)
+
+Starting from Duktape 1.3 an external ``duk_config.h`` is required; it may
+be a prebuilt multi-platform header or a user-modified one.  Duktape 2.x
+will remove support for ``DUK_OPT_xxx`` feature options entirely.
 
 This document describes all the supported Duktape feature options and should
 be kept up-to-date with new features.  The feature option list in the guide
@@ -30,7 +46,8 @@ See also:
 
 - ``timing-sensitive.rst``: suggested options for timing sensitive environments
 
-- ``src/duk_features.h.in``: resolution of feature options to use flags
+- ``src/duk_config.h`` (in the distributable): resolution of feature options
+  to use flags
 
 Feature option naming
 =====================
@@ -185,6 +202,15 @@ deal on platforms with soft float arithmetic.  If a platform has hard floats,
 this option may reduce overall performance because of the additional costs of
 checking for integer/double conversion, etc.
 
+Performance options
+===================
+
+DUK_OPT_JSON_STRINGIFY_FASTPATH
+-------------------------------
+
+Enable JSON.stringify() fast path.  The fast path is not fully portable in
+Duktape 1.3, so it is not enabled by default.
+
 Memory management options
 =========================
 
@@ -213,6 +239,9 @@ it is often limited in embedded environments.  This option forces Duktape to
 use a deep C stack which relaxes e.g. recursion limits.  Automatic feature
 detection enables deep C stacks on some platforms known to have them (e.g.
 Linux, BSD, Windows).
+
+Removed in Duktape 1.3.0, use explicit config options for shallow stack
+targets.
 
 DUK_OPT_NO_REFERENCE_COUNTING
 -----------------------------
@@ -263,9 +292,6 @@ These options are low memory features for systems with 96-256 kB of RAM.
 Unless you have very little RAM, these options are probably not relevant
 to you.  They involve some compromises in e.g. performance or compliance
 to reduce memory usage.
-
-**The low memory feature options are experimental in Duktape 1.1, i.e. they
-may change in an incompatible manner in Duktape 1.2.**
 
 DUK_OPT_REFCOUNT16
 ------------------
@@ -595,7 +621,7 @@ Add a non-standard ``source`` property to function instances.  This allows
 function ``toString()`` to print out the actual function source.  The
 property is disabled by default because it increases memory footprint.
 
-.. note:: Unimplemented as of Duktape 0.12.0.
+.. note:: Unimplemented as of Duktape 1.3.0.
 
 DUK_OPT_NO_NONSTD_ARRAY_SPLICE_DELCOUNT
 ---------------------------------------
@@ -604,7 +630,7 @@ For better compatibility with existing code, ``Array.prototype.splice()``
 has non-standard behavior by default when the second argument (deleteCount)
 is not given: the splice operation is extended to the end of the array,
 see
-`test-bi-array-proto-splice-no-delcount.js <https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/test-bi-array-proto-splice-no-delcount.js>`_.
+`test-bi-array-proto-splice-no-delcount.js <https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-bi-array-proto-splice-no-delcount.js>`_.
 If this option is given, ``splice()`` will behave in a strictly
 conforming fashion, treating a missing deleteCount the same as an undefined
 (or 0) value.
@@ -615,7 +641,7 @@ DUK_OPT_NO_NONSTD_ARRAY_CONCAT_TRAILER
 For better compatibility with existing code, ``Array.prototype.concat()``
 has non-standard behavior by default for trailing non-existent elements of
 the concat result, see
-`test-bi-array-proto-concat-nonstd-trailing.js <https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/test-bi-array-proto-concat-nonstd-trailing.js>`_.
+`test-bi-array-proto-concat-nonstd-trailing.js <https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-bi-array-proto-concat-nonstd-trailing.js>`_.
 If this option is given, ``concat()`` will behave in a strictly conforming
 fashion, ignoring non-existent trailing elements in the result ``length``.
 
@@ -625,7 +651,7 @@ DUK_OPT_NO_NONSTD_ARRAY_MAP_TRAILER
 For better compatibility with existing code, ``Array.prototype.map()``
 has non-standard behavior by default for trailing non-existent elements
 of the map result, see
-`test-bi-array-proto-map-nonstd-trailing.js <https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/test-bi-array-proto-map-nonstd-trailing.js>`_.
+`test-bi-array-proto-map-nonstd-trailing.js <https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-bi-array-proto-map-nonstd-trailing.js>`_.
 If this option is given, ``map()`` will behave in a strictly conforming
 fashion, ignoring non-existent trailing elements in the result ``length``.
 
@@ -654,7 +680,7 @@ Array instances.  The fast path improves performance for common array writes
 but is technically non-compliant.  There's a detectable outside difference
 only when Array.prototype has conflicting numeric properties (which is very
 rare in practice).  See
-`ecmascript-testcases/test-misc-array-fast-write.js <https://github.com/svaarala/duktape/blob/master/ecmascript-testcases/ecmascript-testcases/test-misc-array-fast-write.js>`_
+`tests/ecmascript/test-misc-array-fast-write.js <https://github.com/svaarala/duktape/blob/master/tests/ecmascript/test-misc-array-fast-write.js>`_
 for details on the fast path conditions and behavior.
 
 This feature option enables the compliant (but slower) behavior.
@@ -668,19 +694,19 @@ error.
 DUK_OPT_NO_ES6_OBJECT_PROTO_PROPERTY
 ------------------------------------
 
-Disable the non-standard (ES6 draft) ``Object.prototype.__proto__``
+Disable the non-standard (ES6) ``Object.prototype.__proto__``
 property which is enabled by default.
 
 DUK_OPT_NO_ES6_OBJECT_SETPROTOTYPEOF
 ------------------------------------
 
-Disable the non-standard (ES6 draft) ``Object.setPrototypeOf`` method
+Disable the non-standard (ES6) ``Object.setPrototypeOf`` method
 which is enabled by default.
 
 DUK_OPT_NO_ES6_PROXY
 --------------------
 
-Disable the non-standard (ES6 draft) ``Proxy`` object which is enabled
+Disable the non-standard (ES6) ``Proxy`` object which is enabled
 by default.
 
 DUK_OPT_NO_JX
@@ -703,6 +729,21 @@ DUK_OPT_LIGHTFUNC_BUILTINS
 Force built-in functions to be lightweight functions.  This reduces
 memory footprint by around 14 kB at the cost of some non-compliant
 behavior.
+
+DUK_OPT_NO_BUFFEROBJECT_SUPPORT
+-------------------------------
+
+Disable support for Node.js Buffer and Khronos/ES6 typed arrays, plain
+buffers and Duktape.Buffer will still be supported.  Saves some code
+footprint and may be useful for low memory targets.
+
+C API options
+=============
+
+DUK_OPT_NO_BYTECODE_DUMP_SUPPORT
+--------------------------------
+
+Disable support for bytecode dump/load in C API, reduces code footprint.
 
 Execution and debugger options
 ==============================
@@ -974,22 +1015,26 @@ Development notes
 This section only applies if you customize Duktape internals and wish to
 submit a patch to be included in the mainline distribution.
 
-Adding new feature options
---------------------------
+Adding new config options
+-------------------------
 
-* Add a descriptive ``DUK_OPT_xxx`` for the custom feature.  The custom
-  feature should only be enabled if the feature option is explicitly given.
+* Add a descriptive ``DUK_USE_xxx`` for the custom feature.  Use only this
+  define inside Duktape source code (never add any compiler/platform #ifdefs
+  inside Duktape).
 
-* Modify ``duk_features.h.in`` to detect your custom feature option and define
-  appropriate internal ``DUK_USE_xxx`` define(s).  Conflicts with other
-  features should be detected.  Code outside ``duk_features.h.in`` should only
-  listen to ``DUK_USE_xxx`` defines so that the resolution process is fully
-  contained in ``duk_features.h.in``.
+* Add config option metadata for genconfig; see existing metadata files in
+  ``config/config-options/``.  Remember to add a useful default value and
+  a good description for the new option.  Ensure config option documentation
+  still builds and your option looks good in the documentation.
 
-Removing feature options
-------------------------
+Removing config options
+-----------------------
 
-* If the feature option has been a part of a stable release, add a check
-  for it in ``duk_feature_sanity.h.in``.  If the option is present, the
-  build should error out with a deprecation notice.  This is preferable to
-  silently removing an option a user may be depending on.
+* If the feature option has been a part of a stable release, the first step
+  is to mark the option deprecated in the option metadata.  An option should
+  be deprecated for one minor release before being removed.
+
+* The next step is to mark the option removed in the option metadata.  The
+  option is never completely removed from the metadata, so that it is possible
+  to autogenerate checks for removed options.  This is useful so that users can
+  be warned that options they're using are no longer available.

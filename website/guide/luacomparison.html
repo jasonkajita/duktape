@@ -39,13 +39,13 @@ type, with the following differences:</p>
 the same.</p>
 
 <p>If you need to associate properties with a Duktape buffer, you can use
-an actual object and have the buffer as its property.  You can then add a
-finalizer to the object to free any resources related to the buffer.  This
-works reasonably well as long as nothing else holds a reference to the buffer.
-If this were the case, the buffer could get used after the object had already
-been finalized.  To safeguard against this, the native C structure should
-have a flag indicating whether the data structure is open or closed.  This
-is good practice anyway for robust native code.</p>
+a buffer object instead (or create your own object and store the plain buffer
+as its property).  You can then add a finalizer to the object to free any
+resources related to the buffer.  This works reasonably well as long as nothing
+else holds a reference to the buffer.  If this were the case, the buffer could
+get used after the object had already been finalized.  To safeguard against this,
+the native C structure should have a flag indicating whether the data structure
+is open or closed.  This is good practice anyway for robust native code.</p>
 
 <h2>Garbage collection</h2>
 
@@ -67,16 +67,16 @@ not visible on the call stack all.</p>
 
 <p><code>lua_cpcall()</code> creates a new stack frame.</p>
 
-<h2>Bytecode use</h2>
+<h2>Bytecode dump/load</h2>
 
-<p>Duktape Ecmascript function bytecode is currently a purely internal
-matter.  Code cannot currently be loaded from an external pre-compiled
-bytecode file.  Similarly, there is no equivalent to e.g. <code>lua_dump()</code>.</p>
+<p>Starting from Duktape 1.3 Duktape has a bytecode dump/load mechanism
+similar to Lua <code>lua_dump()</code>. See
+<a href="#bytecodedumpload">Bytecode dump/load</a>.</p>
 
 <h2>Metatables</h2>
 
 <p>There is no equivalent of Lua metatables in Ecmascript E5/E5.1, but
-<a href="https://people.mozilla.org/~jorendorff/es6-draft.html#sec-proxy-objects">Ecmascript E6 Proxy objects</a>
+<a href="http://www.ecma-international.org/ecma-262/6.0/index.html#sec-proxy-objects">Ecmascript E6 Proxy objects</a>
 provide similar functionality.  To allow property virtualization better than available in
 E5/E5.1, Duktape implements an <a href="#es6-proxy">ES6 Proxy subset</a>.</p>
 

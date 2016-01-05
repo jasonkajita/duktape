@@ -855,6 +855,16 @@ def generateDownloadPage(releases_filename):
 	down_soup = validateAndParseHtml(readFile('download/download.html'))
 	setNavSelected(templ_soup, 'Download')
 
+	# Flip download list, preferred by most users
+	tbody = down_soup.select('#releases tbody')[0]
+	assert(tbody is not None)
+	dl_list = tbody.select('tr')
+	for dl in dl_list:
+		dl.extract()
+	dl_list.reverse()
+	for dl in dl_list:
+		tbody.append(dl)
+
 	title_elem = templ_soup.select('#template-title')[0]
 	del title_elem['id']
 	title_elem.string = 'Downloads'
@@ -933,6 +943,7 @@ def generateGuide():
 	navlinks.append(['#custombehavior', 'Custom behavior'])
 	navlinks.append(['#customjson', 'Custom JSON formats'])
 	navlinks.append(['#customdirectives', 'Custom directives'])
+	navlinks.append(['#bufferobjects', 'Buffer objects'])
 	navlinks.append(['#errorobjects', 'Error objects'])
 	navlinks.append(['#functionobjects', 'Function objects'])
 	navlinks.append(['#debugger', 'Debugger'])
@@ -942,6 +953,7 @@ def generateGuide():
 	navlinks.append(['#coroutines', 'Coroutines'])
 	navlinks.append(['#virtualproperties', 'Virtual properties'])
 	navlinks.append(['#internalproperties', 'Internal properties'])
+	navlinks.append(['#bytecodedumpload', 'Bytecode dump/load'])
 	navlinks.append(['#threading', 'Threading'])
 	navlinks.append(['#sandboxing', 'Sandboxing'])
 	navlinks.append(['#performance', 'Performance'])
@@ -979,6 +991,7 @@ def generateGuide():
 	res += processRawDoc('guide/custombehavior.html')
 	res += processRawDoc('guide/customjson.html')
 	res += processRawDoc('guide/customdirectives.html')
+	res += processRawDoc('guide/bufferobjects.html')
 	res += processRawDoc('guide/errorobjects.html')
 	res += processRawDoc('guide/functionobjects.html')
 	res += processRawDoc('guide/debugger.html')
@@ -988,6 +1001,7 @@ def generateGuide():
 	res += processRawDoc('guide/coroutines.html')
 	res += processRawDoc('guide/virtualproperties.html')
 	res += processRawDoc('guide/internalproperties.html')
+	res += processRawDoc('guide/bytecodedumpload.html')
 	res += processRawDoc('guide/threading.html')
 	res += processRawDoc('guide/sandboxing.html')
 	res += processRawDoc('guide/performance.html')
@@ -1091,7 +1105,7 @@ def scrapeDuktapeVersion():
 def main():
 	outdir = sys.argv[1]; assert(outdir)
 	apidocdir = 'api'
-	apitestdir = '../api-testcases'
+	apitestdir = '../tests/api'
 	guideincdirs = [ './guide', '../examples/guide' ]
 	apiincdirs = [ './api', '../examples/api' ]
 	out_charset = 'utf-8'

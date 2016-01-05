@@ -25,10 +25,6 @@ Checklist for ordinary releases
 
   - git gc --aggressive
 
-* Ditz maintenance
-
-  - Ensure Ditz issues for the new release are all closed
-
 * Finalize DUK_VERSION
 
   - Change previous development version (with patch level 99) to release
@@ -47,15 +43,17 @@ Checklist for ordinary releases
 
   - New release is in place
 
-  - Release log entries match ditz issues
-
   - Release date is in place
+
+* Ensure tests/api/test-all-public-symbols.c is up-to-date
+
+  - Must add all new API calls
 
 * Compilation tests:
 
   - Clean compile for command line tool with (a) no options and (b) common
-    debug options (DUK_OPT_DEBUG, DUK_OPT_DPRINT, DUK_OPT_SELF_TESTS,
-    DUK_OPT_ASSERTIONS)
+    debug options (DUK_USE_DEBUG, DUK_USE_DPRINT, DUK_USE_SELF_TESTS,
+    DUK_USE_ASSERTIONS)
 
   - Compile both from ``src`` and ``src-separate``.
 
@@ -95,13 +93,15 @@ Checklist for ordinary releases
 
     + Linux SH4 gcc
 
+  - Check ``make duk-clang``, covers ``-Wcast-align``
+
 * Compile command line tool as a Windows DLL, checks Windows symbol visibility
   macros::
 
     > cd dist
-    > cl /O2 /DDUK_OPT_DLL_BUILD /Isrc /LD src\duktape.c
-    > cl /O2 /DDUK_OPT_DLL_BUILD /Isrc examples\cmdline\duk_cmdline.c duktape.lib
-    > duk_cmdline.exe
+    > cl /W3 /O2 /DDUK_OPT_DLL_BUILD /Isrc /LD src\duktape.c
+    > cl /W3 /O2 /DDUK_OPT_DLL_BUILD /Isrc /Feduk.exe examples\cmdline\duk_cmdline.c duktape.lib
+    > duk.exe
 
 * Ecmascript testcases
 
@@ -123,9 +123,13 @@ Checklist for ordinary releases
 
 * Run testcases with torture options
 
-  - DUK_OPT_GC_TORTURE
+  - DUK_USE_GC_TORTURE
 
-  - DUK_OPT_SHUFFLE_TORTURE
+  - DUK_USE_SHUFFLE_TORTURE
+
+  - DUK_USE_REFZERO_FINALIZER_TORTURE
+
+  - DUK_USE_MARKANDSWEEP_FINALIZER_TORTURE + DUK_OPT_GC_TORTURE
 
 * Memory usage testing
 
@@ -133,7 +137,14 @@ Checklist for ordinary releases
     resize algorithms (or similar) can lead to unbounded or suboptimal
     memory usage
 
-  - XXX: establish some baseline test
+  - Minimal manual refcount leak test:
+
+    - test-dev-refcount-leak-basic.js
+
+* Performance testing
+
+  - Check for unexpected performance regressions by compiling previous release
+    and candidate release with ``-O2`` and running "make perftest" for them.
 
 * API testcases
 
@@ -149,7 +160,7 @@ Checklist for ordinary releases
 
 * Regfuzz
 
-  - On x86-64, with DUK_OPT_ASSERTIONS
+  - On x86-64, with DUK_USE_ASSERTIONS
 
     - make regfuzztest
 
@@ -173,6 +184,12 @@ Checklist for ordinary releases
 
     - make emscriptenduktest
 
+* emscripten (compile Duktape with emscripten, run with Duktape)
+
+  - on x86-64
+
+    - make emscripteninceptiontest
+
 * JS-Interpreter
 
   - on x86-64
@@ -185,6 +202,13 @@ Checklist for ordinary releases
 
     - make luajstest
 
+* Release notes (``doc/release-notes-*.rst``)
+
+  - Write new release notes for release; needs known issues output from at
+    least API, Ecmascript, and test262 test runs
+
+  - Ensure instructions for upgrading from last release are correct
+
 * Git release and tag
 
   - Tagging should be done before creating the candidate tar files so that
@@ -195,6 +219,9 @@ Checklist for ordinary releases
 
   - There can be commits to the repo after tagging but nothing that will
     affect "make dist" output.
+
+  - Make sure the tag is in the master commit chain, so that git describe will
+    provide a useful output for dist packages built after the release
 
   - ``git tag -l -n1`` to list current tags
 
@@ -212,7 +239,11 @@ Checklist for ordinary releases
     values are known.
 
   - Check git describe output from dist ``README.rst``, ``src/duktape.h``,
-    and ``src/duktape.c``.  It should show the release tag.
+    ``src/duktape.c``, and ``src/duk_config.h``.  It should show the release
+    tag.
+
+  - This should be done in a fresh checkout to minimize chance of any
+    uncommitted files, directories, etc affecting the build
 
 * Check source dist contents
 
@@ -224,6 +255,9 @@ Checklist for ordinary releases
 
   - Trivial compile test for separate sources (important because
     it's easy to forget to add files in make_dist.sh)
+
+  - Test Makefile.dukdebug + debugger/duk_debug.js to ensure all files
+    are included (easy to forget e.g. YAML metadata files)
 
 * Store binaries to duktape-releases repo
 
@@ -262,11 +296,7 @@ Checklist for ordinary releases
 
   - Check duk command line version number in Guide "Getting started"
 
-* Ditz release
-
-  - ``ditz release vN.N``
-
-  - git add and commit ditz issues
+  - Diff website HTML against current website
 
 * Upload website and test
 
@@ -291,11 +321,6 @@ Checklist for ordinary releases
     version number easy to distinguish as an unofficial release.
 
   - ``src/duk_api_public.h.in``
-
-* Update ``DITZ_RELEASE`` in ``Makefile``
-
-  - It should point to the next expected release so that ``make issuecount``
-    and ``make issues`` provide useful output
 
 Checklist for maintenance releases
 ==================================

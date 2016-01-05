@@ -128,7 +128,7 @@ def getDuktapeVersion():
 def main():
 	outfile = sys.argv[1]
 
-	if not os.path.exists('CONTRIBUTING.md') and os.path.exists('ecmascript-testcases'):
+	if not os.path.exists('CONTRIBUTING.md') and os.path.exists('tests/ecmascript'):
 		sys.stderr.write('Invalid CWD, must be in Duktape root with dist/ built')
 		sys.exit(1)
 	os.chdir('dist')
@@ -143,7 +143,7 @@ def main():
 	creation_date = Literal(now.isoformat() + 'Z', datatype=XSD.dateTime)
 	duktape_org = Literal('Organization: duktape.org')
 	mit_license = URIRef('http://spdx.org/licenses/MIT')
-	duktape_copyright = Literal('Copyright 2013-2014 Duktape authors (see AUTHORS.rst in the Duktape distributable)')
+	duktape_copyright = Literal('Copyright 2013-2015 Duktape authors (see AUTHORS.rst in the Duktape distributable)')
 
 	g = rdflib.Graph()
 
@@ -169,8 +169,9 @@ def main():
 	# SPDX.checksum: omitted because license is inside the package
 	g.add((pkg_node, SPDX.sourceInfo, Literal('Official duktape.org release built from GitHub repo https://github.com/svaarala/duktape.')))
 
-	# NOTE: MIT license alone is sufficient fornow, because Duktape, MurmurHash2 and
-	# CommonJS (though probably not even relevant for licensing) are all MIT.
+	# NOTE: MIT license alone is sufficient for now, because Duktape, Lua,
+	# Murmurhash2, and CommonJS (though probably not even relevant for
+	# licensing) are all MIT.
 	g.add((pkg_node, SPDX.licenseConcluded, mit_license))
 	g.add((pkg_node, SPDX.licenseInfoFromFiles, mit_license))
 	g.add((pkg_node, SPDX.licenseDeclared, mit_license))

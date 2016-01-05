@@ -78,7 +78,7 @@ DUK_INTERNAL duk_hcompiledfunction *duk_hcompiledfunction_alloc(duk_heap *heap, 
 	duk__init_object_parts(heap, &res->obj, hobject_flags);
 
 #ifdef DUK_USE_EXPLICIT_NULL_INIT
-#ifdef DUK_HEAPPTR16
+#ifdef DUK_USE_HEAPPTR16
 	/* NULL pointer is required to encode to zero, so memset is enough. */
 #else
 	res->data = NULL;
@@ -108,6 +108,25 @@ DUK_INTERNAL duk_hnativefunction *duk_hnativefunction_alloc(duk_heap *heap, duk_
 	return res;
 }
 
+DUK_INTERNAL duk_hbufferobject *duk_hbufferobject_alloc(duk_heap *heap, duk_uint_t hobject_flags) {
+	duk_hbufferobject *res;
+
+	res = (duk_hbufferobject *) DUK_ALLOC(heap, sizeof(duk_hbufferobject));
+	if (!res) {
+		return NULL;
+	}
+	DUK_MEMZERO(res, sizeof(duk_hbufferobject));
+
+	duk__init_object_parts(heap, &res->obj, hobject_flags);
+
+#ifdef DUK_USE_EXPLICIT_NULL_INIT
+	res->buf = NULL;
+#endif
+
+	DUK_ASSERT_HBUFFEROBJECT_VALID(res);
+	return res;
+}
+
 /*
  *  Allocate a new thread.
  *
@@ -128,6 +147,7 @@ DUK_INTERNAL duk_hthread *duk_hthread_alloc(duk_heap *heap, duk_uint_t hobject_f
 	duk__init_object_parts(heap, &res->obj, hobject_flags);
 
 #ifdef DUK_USE_EXPLICIT_NULL_INIT
+	res->ptr_curr_pc = NULL;
 	res->heap = NULL;
 	res->valstack = NULL;
 	res->valstack_end = NULL;
@@ -136,7 +156,12 @@ DUK_INTERNAL duk_hthread *duk_hthread_alloc(duk_heap *heap, duk_uint_t hobject_f
 	res->callstack = NULL;
 	res->catchstack = NULL;
 	res->resumer = NULL;
+	res->compile_ctx = NULL,
+#ifdef DUK_USE_HEAPPTR16
+	res->strs16 = NULL;
+#else
 	res->strs = NULL;
+#endif
 	{
 		int i;
 		for (i = 0; i < DUK_NUM_BUILTINS; i++) {

@@ -6,11 +6,6 @@
 #define DUK_JS_COMPILER_H_INCLUDED
 
 /* ecmascript compiler limits */
-#if defined(DUK_USE_DEEP_C_STACK)
-#define DUK_COMPILER_RECURSION_LIMIT       2500L
-#else
-#define DUK_COMPILER_RECURSION_LIMIT       50L
-#endif
 #define DUK_COMPILER_TOKEN_LIMIT           100000000L  /* 1e8: protects against deeply nested inner functions */
 
 /* maximum loopcount for peephole optimization */
@@ -116,8 +111,10 @@ struct duk_compiler_func {
 	 * platforms (e.g. if int is 32 bits and pointers are 64 bits).
 	 */
 
+	duk_bufwriter_ctx bw_code;          /* bufwriter for code */
+
 	duk_hstring *h_name;                /* function name (borrowed reference), ends up in _name */
-	duk_hbuffer_dynamic *h_code;        /* C array of duk_compiler_instr */
+	/* h_code: held in bw_code */
 	duk_hobject *h_consts;              /* array */
 	duk_hobject *h_funcs;               /* array of function templates: [func1, offset1, line1, func2, offset2, line2]
 	                                     * offset/line points to closing brace to allow skipping on pass 2
@@ -132,7 +129,7 @@ struct duk_compiler_func {
 	duk_hobject *h_varmap;              /* variable map for pass 2 (identifier -> register number or null (unmapped)) */
 
 	/* value stack indices for tracking objects */
-	duk_idx_t code_idx;
+	/* code_idx: not needed */
 	duk_idx_t consts_idx;
 	duk_idx_t funcs_idx;
 	duk_idx_t decls_idx;
@@ -178,7 +175,7 @@ struct duk_compiler_func {
 	duk_bool_t is_setget;               /* is a setter/getter */
 	duk_bool_t is_decl;                 /* is a function declaration (as opposed to function expression) */
 	duk_bool_t is_strict;               /* function is strict */
-	duk_bool_t is_notail;               /* function must not be tailcalled */
+	duk_bool_t is_notail;               /* function must not be tail called */
 	duk_bool_t in_directive_prologue;   /* parsing in "directive prologue", recognize directives */
 	duk_bool_t in_scanning;             /* parsing in "scanning" phase (first pass) */
 	duk_bool_t may_direct_eval;         /* function may call direct eval */
@@ -221,7 +218,7 @@ struct duk_compiler_ctx {
  *  Prototypes
  */
 
-#define DUK_JS_COMPILE_FLAG_EVAL      (1 << 0)  /* source is eval code (not program) */
+#define DUK_JS_COMPILE_FLAG_EVAL      (1 << 0)  /* source is eval code (not global) */
 #define DUK_JS_COMPILE_FLAG_STRICT    (1 << 1)  /* strict outer context */
 #define DUK_JS_COMPILE_FLAG_FUNCEXPR  (1 << 2)  /* source is a function expression (used for Function constructor) */
 

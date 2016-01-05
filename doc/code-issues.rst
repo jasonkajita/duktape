@@ -60,10 +60,10 @@ interest only can have a local name or have a double underscore after "DUK"::
   /* select DUK_FOO provider */
   #define DUK_FOO  DUK_FOO_ALT2
 
-There is only one space after a ``#define``, ``#ifdef``, etc, but there
-may be multiple spaces between the a macro name and its definition.  There
-is no strict rule on the alignment of a macro value; successive definitions
-usually keep values in the same column.
+There is only one space after a ``#define``, ``#if``, etc, but there may be
+multiple spaces between the a macro name and its definition.  There is no
+strict rule on the alignment of a macro value; successive definitions usually
+keep values in the same column.
 
 Comments are always traditional C comments, never ``//``, as they are not
 portable to older compilers::
@@ -107,7 +107,12 @@ Space after ``if``, ``switch``, etc::
   switch(x) { ... }   /* incorrect */
 
 Use of goto for error cleanup and shared error handling is not only
-allowed but encouraged.
+allowed but encouraged.  Some goto notes:
+
+* Avoid goto to an inner block as that might have portability impact.
+
+* Jumping to skip blocks should be used only when it saves considerable
+  indentation.
 
 No naked statements in e.g. ``if-then-else``, always use a block.
 This is more macro compatible.  Example::
@@ -121,7 +126,7 @@ This is more macro compatible.  Example::
 
 Multi-statement macros should use a ``do-while(0)`` construct::
 
-  #define  FROBNICATE(x,y)  do { \
+  #define FROBNICATE(x,y)  do { \
                   x = x * x; \
                   y = y * y; \
           } while (0)
@@ -130,18 +135,18 @@ When the body of a macro is sometimes empty, use an empty do-while so that
 the macro still yields a statement::
 
   #if defined(DUK_USE_FROB)
-  #define  FROBNICATE(x,y)  do { \
+  #define FROBNICATE(x,y)  do { \
                   x = x * x; \
                   y = y * y; \
           } while (0)
   #else
-  #define  FROBNICATE(x,y)  do { } while (0)
+  #define FROBNICATE(x,y)  do { } while (0)
   #endif
 
 Use parentheses when referring to macro arguments and the final macro
 result to minimize error proneness::
 
-  #define  MULTIPLY(a,b)  ((a) * (b))
+  #define MULTIPLY(a,b)  ((a) * (b))
 
   /* Now MULTIPLY(1 + 2, 3) expands to ((1 + 2) * (3)) == 9, not
    * 1 + 2 * 3 == 7.  Parentheses are used around macro result for
@@ -280,6 +285,66 @@ See:
 
 ``#pragma once`` is not portable, and is not used.
 
+Preprocessor value comparisons with empty arguments must be avoided
+-------------------------------------------------------------------
+
+This will cause a compile error even with newer compilers::
+
+  /* FOO and BAR are defined, BAR is defined with an empty value. */
+  #define FOO 123
+  #define BAR
+
+  #if defined(FOO) && defined(BAR) && (FOO == BAR)
+  /* ... */
+  #endif
+
+It doesn't help to guard the comparison because the root cause is the
+comparison having an empty argument::
+
+  #define FOO 123
+  #define BAR
+
+  #if defined(FOO) && defined(BAR)  /* will match */
+  #if (FOO == BAR)  /* still fails */
+  /* ... */
+  #endif
+  #endif
+
+The "guarded" form above is still preferred because it works also with
+compilers which fail a comparison with an undefined value.
+
+Explicitly detecting an empty value seems difficult to do properly, so
+there doesn't seem to be an easy way to avoid this:
+
+* http://stackoverflow.com/questions/3781520/how-to-test-if-preprocessor-symbol-is-defined-but-has-no-value
+
+The comparison is not an issue in Duktape internals when comparing against
+**required config options**.  This is safe, for example::
+
+  #if (DUK_USE_ALIGN_BY == 8)
+  /* ... */
+  #endif
+
+The comparison is a concrete issue in ``duk_config.h`` where the defines
+provided by the environment vary a great deal.  See for example:
+
+* https://github.com/judofyr/duktape.rb/pull/33#issuecomment-159488580
+
+Preprocessor ifdef vs. if defined
+---------------------------------
+
+This form is preferred::
+
+  #if defined(FROB)
+  ...
+  #endif
+
+instead of::
+
+  #ifdef FROB
+  ...
+  #endif
+
 FIXME, TODO, XXX, NOTE, etc markers
 -----------------------------------
 
@@ -351,27 +416,47 @@ is not possible or useful.
 never true, like invalid API call arguments, string size overflows, etc::
 
   if (DUK_UNLIKELY(ptr == NULL)) {
-      /* ... */
+          /* ... */
   }
 
 Similarly, ``DUK_LIKELY()`` should be used for conditions which are almost
 always true::
 
   if (DUK_LIKELY(ptr != NULL)) {
-      /* ... */
+          /* ... */
   }
 
 The argument to these macros must be an integer::
 
   /* correct */
   if (DUK_LIKELY(ptr != NULL)) {
-      /* ... */
+          /* ... */
   }
 
   /* incorrect */
   if (DUK_LIKELY(ptr)) {
-      /* ... */
+          /* ... */
   }
+
+Inlining control
+----------------
+
+For the vast majority of functions it's unnecessary to force a specific
+inlining behavior (which is compiler specific).  There are a few inlining
+control macros that can be applied when necessary for performance or code
+size.
+
+Inline control macros are applied to function definition, not declaration::
+
+    /* Declaration */
+    DUK_INTERNAL_DECL duk_foo(...);
+
+    /* Definition */
+    DUK_INTERNAL DUK_ALWAYS_INLINE duk_foo(...) {
+            ...
+    }
+
+Applying inline control in the declaration causes issues with e.g. gcc.
 
 C++ compatibility
 -----------------
@@ -408,6 +493,112 @@ platforms the outer macro allows a debug log write to be omitted entirely.
 If the log writes are not omitted, the workaround for lack of variadic
 macros causes a lot of warnings with some compilers.  With this wrapping,
 at least the non-debug build will be clean on non-C99 compilers.
+
+Gcc/clang -Wcast-align
+----------------------
+
+When casting from e.g. a ``duk_uint8_t *`` to a struct pointer clang will
+emit a warning when ``-Wcast-align`` is used; see ``misc/clang_cast_align.c``
+and https://github.com/svaarala/duktape/issues/270.
+
+One fix is to change the original pointer being cast into a ``void *`` from
+a char/byte-based pointer (e.g. ``duk_uint8_t *``)::
+
+  void *p = DUK_FICTIONAL_GET_BUFFER_BASE(...);
+  struct dummy *dummy = (struct dummy *) p;
+
+However, this doesn't work well when pointer arithmetic on the pointer is
+needed; pointer arithmetic on a void pointer works on many compilers but
+is non-standard, non-portable behavior.  Instead, raw (byte-based) pointer
+arithmetic should be done on a char/byte pointer (e.g. ``duk_uint8_t *``).
+In such situations casting through a ``void *`` avoids the warning::
+
+  duk_uint8_t *p = DUK_FICTIONAL_GET_BUFFER_BASE(...);
+  struct dummy *dummy = (struct dummy *) (void *) (p + 16);
+
+Code doing casts like this must of course be aware of actual target
+alignment requirements and respect them properly.
+
+Gcc/clang -Wcast-qual
+---------------------
+
+As a general rule casting from e.g. ``const char *`` to ``char *``
+should be avoided by reworking code structure.  Sometimes this can't
+be avoided though; for example, ``duk_push_pointer()`` takes a ``void *``
+argument and if the source pointer is ``const char *`` a cast may be
+necessary.
+
+There doesn't seem to be a nice portable approach:
+
+* Casting through a ``void *`` is not enough to silence the warning.
+
+* Casting through an integer (e.g. ``(void *) (duk_uintptr_t) const_ptr``)
+  works but assumes that pointers can be safely cast through an integer.
+  This is not necessarily portable to platforms with segmented pointers.
+
+If a const-losing cast is required internally, the following macro is used
+to cast an arbitrary const pointer into a ``void *``::
+
+  const my_type *src;
+
+  dst = (char *) DUK_LOSE_CONST(src);
+
+It is defined in ``duk_config.h`` so that it can be hacked if necessary.
+If nothing else, it signals the intent of the call site.
+
+A similar issue exists for volatile pointers.  Technically casting from a
+volatile pointer to a non-volatile pointer and then using the non-volatile
+pointer has "undefined behavior".  In practice the compiler may generate code
+which conflicts with assumed behavior, e.g. not reading or writing the value
+behind the pointer every time.  Rework the code to avoid the cast.  For
+example::
+
+  void write_something(int *target);
+
+  void test(void) {
+      volatile int x = 123;
+
+      write_something((int *) &x);
+  }
+
+can be reworked to::
+
+  void write_something(int *target);
+
+  void test(void) {
+      volatile int x = 123;
+      int tmp;
+
+      write_something(&tmp);
+      x = tmp;
+  }
+
+For volatile byte arrays a workaround is awkward because you can't use a
+non-volatile temporary and then ``memcpy()`` from the temporary into the
+volatile buffer: a volatile-to-non-volatile cast would happen for the
+``memcpy()`` call.  You'd need to copy the bytes one by one manually or
+use an external helper which accepts a volatile source and a non-volatile
+destination.
+
+Gcc/clang -Wfloat-equal
+-----------------------
+
+When comparing floats for equality (``==``) or inequality (``!=``) there
+are subtle portability issues.  For example, with x87 the compiler may use
+extended precision (80 bits) even when the arguments are nominally IEEE
+doubles.  Gcc/clang warn about such comparisons when ``-Wfloat-equal`` is
+used.  Useful discussion:
+https://randomascii.wordpress.com/2012/03/21/intermediate-floating-point-precision/
+
+Duktape needs to do float equality comparisons in some cases, and when the
+comparisons are done properly they're not an actual portability issue.
+Unfortunately there doesn't seem to be an idiom which avoids the warning,
+see: https://github.com/svaarala/duktape/issues/234.  So at present Duktape
+code base is not ``-Wfloat-equal`` clean.
+
+One workaround would be to implement all comparisons by looking at the IEEE
+byte representation directly (using a union with double and byte array).
+This is a rather heavy workaround though.
 
 Symbol visibility
 =================
@@ -449,9 +640,9 @@ All Duktape symbols are declared with one of the following prefix macros:
 * ``DUK_LOCAL_DECL`` and ``DUK_LOCAL``: symbol is file local.  This maps to
   ``static`` and currently requires no compiler specific treatment.
 
-As usual, ``duk_features.h.in`` defines these visibility symbols as
-appropriate, taking into account both the compiler and whether Duktape
-is being compiled from a single or multiple files.
+As usual, ``duk_config.h`` defines these visibility symbols as appropriate,
+taking into account both the compiler and whether Duktape is being compiled
+from a single or multiple files.
 
 Missing a visibility macro is not critical on GCC: it will just pollute
 the symbol table.  On MSVC it can make break a DLL build of Duktape.
@@ -476,6 +667,10 @@ The ``DUK_INTERNAL_DECL`` idiom is::
   #if !defined(DUK_SINGLE_FILE)
   DUK_INTERNAL_DECL const char *duk_str_not_object;
   #endif  /* !DUK_SINGLE_FILE */
+
+For this to work in the single file case, ``util/combine_src.py`` must
+ensure that the symbol definition appears before its use.  This is currently
+handled via manual file reordering.
 
 Concrete example
 ----------------
@@ -667,8 +862,8 @@ variadic macros it's defined as::
     /* Note: parentheses are required so that the comma expression works in assignments. */
     #define duk_push_error_object  \
             (duk_api_global_filename = __FILE__, \
-            duk_api_global_line = (duk_int_t) (__LINE__), \
-            duk_push_error_object_stash)  /* last value is func pointer, arguments follow in parens */
+             duk_api_global_line = (duk_int_t) (__LINE__), \
+             duk_push_error_object_stash)  /* last value is func pointer, arguments follow in parens */
 
 When you call it as::
 
@@ -717,7 +912,7 @@ This problem can be avoided by using explicit function wrappers when a
 function pointer is needed::
 
   double duk__acos(double x) {
-      return acos(x);
+          return acos(x);
   }
 
   /* ... use duk__acos as a function pointer */
@@ -765,7 +960,7 @@ There is an interesting corner case when trying to define minimum signed
 integer value constants.  For instance, trying to define a constant for
 the minimum 32-bit signed integer as follows is non-portable::
 
-  #define  MIN_VALUE  (-0x80000000L)
+  #define MIN_VALUE  (-0x80000000L)
 
 Apparently the compiler will first evaluate "0x80000000L" and, despite being
 a signed constant, determine that it won't fit into a signed integer so it
@@ -777,13 +972,13 @@ This may then result in very unintuitive behavior.  For instance::
 
   /* 'd' is an input double to be clamped */
   if (d < (double) MIN_VALUE) {
-      return (duk_int_t) MIN_VALUE;
+          return (duk_int_t) MIN_VALUE;
   }
 
 The compiler will actually end up doing::
 
   if (d < (double) 0x80000000) {  /* positive! */
-      return (duk_int_t) 0x80000000;
+          return (duk_int_t) 0x80000000;
   }
 
 Given zero as an input, the comparison will match (which is undesired), and
@@ -928,10 +1123,10 @@ integer type bit size is exact::
   /* ... */
   z = x + y;
   if (z < x) {
-    /* Overflow: (z < x) or equivalently (z < y) cannot be true unless
-     * overflow occurs.  This relies on unsigned overflow behavior and
-     * an exact bit size for the type.
-     */
+          /* Overflow: (z < x) or equivalently (z < y) cannot be true unless
+           * overflow occurs.  This relies on unsigned overflow behavior and
+           * an exact bit size for the type.
+           */
   }
 
 Detecting overflow in multiplication is a bit trickier.  This comes up
@@ -944,7 +1139,7 @@ if a larger type is available::
 
   t = (duk_uint64_t) x * (duk_uint64_t) y;
   if (t >= (duk_uint64_t) LIMIT) {
-    /* Overflow. */
+          /* Overflow. */
   }
   z = (duk_uint32_t) t;
 
@@ -970,7 +1165,7 @@ conservative and may indicate overflow even when one wouldn't occur::
   duk_uint32_t x, y, z;
 
   if (y != 0 && x > (duk_uint32_t) 0xffffffffU / y) {
-    /* Probable overflow. */
+          /* Probable overflow. */
   }
   z = x * y;
 
@@ -1070,17 +1265,17 @@ It should be safe to:
 
 When pointer values are changed, be careful with placement of "volatile"::
 
-    /* Non-volatile pointer, which points to a volatile integer. */
-    volatile int *ptr_x;
+  /* Non-volatile pointer, which points to a volatile integer. */
+  volatile int *ptr_x;
 
-    /* Volatile pointer, which points to a non-volatile integer. */
-    int * volatile x;
+  /* Volatile pointer, which points to a non-volatile integer. */
+  int * volatile x;
 
 When a pointer itself may be reassigned, the latter is correct, e.g.::
 
-    duk_hthread * volatile curr_thread;
+  duk_hthread * volatile curr_thread;
 
-    curr_thread = thr;
+  curr_thread = thr;
 
 In practice it seems that some compilers have trouble guaranteeing these
 semantics for variables that are assigned to before ``setjmp()`` and not
@@ -1093,8 +1288,25 @@ Optimizations may also cause odd situations, see e.g.:
 
 * http://blog.sam.liddicott.com/2013/09/why-are-setjmp-volatile-hacks-still.html
 
+With Emscripten a function containing ``setjmp()`` executes much more slowly
+than a function without it.  For example, for the bytecode executor the speed
+improvement of refactoring ``setjmp()`` out of the main executor function was
+around 25%:
+
+* https://github.com/svaarala/duktape/pull/370
+
+Some compilers generate incorrect code with setjmp.  Some workarounds may be
+needed (e.g. optimizations may need to be disabled completely) for functions
+containing a setjmp:
+
+* https://github.com/svaarala/duktape/issues/369
+
 To minimize the chances of the compiler handling setjmp/longjmp incorrectly,
 the cleanest approach would probable be to:
+
+* Minimize the size of functions containing a ``setjmp()``; use a wrapper
+  with just the ``setjmp()`` and an inner function with the rest of the
+  function when that's possible.
 
 * Declare all variables used in the ``setjmp()`` non-zero return case (when
   called through ``longjmp()``) as volatile, so that we don't ever rely on
@@ -1104,24 +1316,24 @@ Because volatile variables are slow (explicit read/write operations are
 generated for each access) it may be more practical to use explicit "save"
 variables, e.g.::
 
-    volatile int save_x;
-    int x;
+  volatile int save_x;
+  int x;
 
-    if (setjmp(...)) {
-        x = save_x;
-        /* use 'x' normally */
-        return;
-    }
+  if (setjmp(...)) {
+          x = save_x;
+          /* use 'x' normally */
+          return;
+  }
 
-    /* Assume foo(), bar(), quux() never longjmp(). */
-    x = foo();
-    x += bar();
-    x += quux();
-    save_x = x;  /* Save before any potential longjmp(). */
+  /* Assume foo(), bar(), quux() never longjmp(). */
+  x = foo();
+  x += bar();
+  x += quux();
+  save_x = x;  /* Save before any potential longjmp(). */
 
-    /* ... */
+  /* ... */
 
-(As of Duktape 1.1 this has not yet been done for all setjmp/longjmp
+(As of Duktape 1.3 this has not yet been done for all setjmp/longjmp
 functions.  Rather, volatile declarations have been added where they
 seem to be needed in practice.)
 
@@ -1465,7 +1677,7 @@ For some reason BCC fails to compile switch statements where the value is
 obtained with a macro such as::
 
   switch (DUK_DEC_OP(ins)) {
-    ...
+          ...
   }
 
 This is probably caused by the fact that ``DUK_DEC_OP(ins)`` is a 32-bit value
@@ -1473,13 +1685,13 @@ while BCC's integer type is 16 bits.  Switch argument needs to be ``int``, so
 one needs to::
 
   switch ((int) DUK_DEC_OP(ins)) {
-    ...
+          ...
   }
 
 Or perhaps (using type wrappers)::
 
   switch ((duk_small_int_t) DUK_DEC_OP(ins)) {
-    ...
+          ...
   }
 
 Division by zero is a compile error
@@ -1530,7 +1742,8 @@ arguments".  The fix is to remove the comment from inside the macro::
 Character values in char literals and strings, EBCDIC
 =====================================================
 
-**FIXME: under work**
+**FIXME: under work, while some other projects do support EBCDIC,
+EBCDIC may not be a useful portability target for Duktape.**
 
 Overview
 --------
@@ -1545,7 +1758,7 @@ If you read a character value from a platform specific text file, then
 code such as the following would be appropriate::
 
   if (c == 'x') {
-    ...
+          ...
   }
 
 However, if you have a character value which must be interpreted as ASCII,
@@ -1554,7 +1767,7 @@ have the value 120 ('x' in ASCII) but might have the value 167 ('x' in
 EBCDIC).  To correctly compare the value as ASCII::
 
   if (c == 120) {
-    ...
+          ...
   }
 
 The same applies to string constants, this would be unportable::
@@ -1690,26 +1903,26 @@ The following program demonstrates the NaN issue::
   #include <stdio.h>
 
   void main(void) {
-      double z = 0.0;
-      double t;
-      volatile union {
-          double d;
-          unsigned char b[8];
-      } u;
-      int i;
+          double z = 0.0;
+          double t;
+          volatile union {
+                  double d;
+                  unsigned char b[8];
+          } u;
+          int i;
   
-      /* this results in 0.0 */
-      t = 0.0 / 0.0;
-      printf("result: %lf\n", t);
+          /* this results in 0.0 */
+          t = 0.0 / 0.0;
+          printf("result: %lf\n", t);
   
-      /* this results in NaN */
-      t = z / z;
-      printf("result: %lf\n", t);
+          /* this results in NaN */
+          t = z / z;
+          printf("result: %lf\n", t);
       
-      u.d = t;
-      for (i = 0; i < 8; i++) {
-          printf("%02x\n", u.b[i]);
-      }
+          u.d = t;
+          for (i = 0; i < 8; i++) {
+              printf("%02x\n", u.b[i]);
+          }
   }
 
 To work with compiler optimization, the above approach needs to have the

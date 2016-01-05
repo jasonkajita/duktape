@@ -1,10 +1,5 @@
 <h1 id="debugger">Debugger</h1>
 
-<div class="note">
-<b>The debugger feature is experimental at present, which means that it may
-be unstable and change in an incompatible fashion even in a minor release.</b>
-</div>
-
 <p>Duktape has built-in debugger support as an option you can enable during
 compilation.  Debugger support adds about 10kB of code footprint and has
 very minimal memory footprint.</p>
@@ -41,7 +36,7 @@ pieces you need to get started with debugging using a TCP transport:</p>
 
 <ul>
 <li>An example implementation of the callbacks needed for a TCP transport:
-    <a href="https://github.com/svaarala/duktape/blob/master/examples/debug-trans-socket/">duk_debug_trans_socket.c</a></li>
+    <a href="https://github.com/svaarala/duktape/blob/master/examples/debug-trans-socket/">duk_trans_socket.c</a></li>
 <li>Debugger support for the Duktape command line tool (<code>duk</code>) using
     the TCP transport: <code>--debugger</code> option</li>
 <li>A debugger web UI based on
@@ -64,4 +59,6 @@ using the binary debug protocol, or use the JSON proxy provided by
 <ul>
 <li><a href="https://github.com/svaarala/duktape/blob/master/debugger/README.rst">debugger/README.rst</a></li>
 <li><a href="https://github.com/svaarala/duktape/blob/master/doc/debugger.rst">debugger.rst</a></li>
+<li><a href="https://github.com/svaarala/duktape/blob/master/examples/debug-trans-dvalue/">duk_trans_dvalue.c</a>:
+    example debug transport with local debug protocol decoding/encoding</li>
 </ul>

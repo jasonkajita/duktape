@@ -8,7 +8,7 @@
 
 var fs = require('fs'),
     path = require('path'),
-//    temp = require('temp'),
+    tmp = require('tmp'),
     child_process = require('child_process'),
     async = require('async'),
     xml2js = require('xml2js'),
@@ -26,18 +26,19 @@ var optMinifyClosure;
 var optMinifyUglifyJS;
 var optMinifyUglifyJS2;
 var optUtilIncludePath;
+var optEmdukTrailingLineHack;
 var knownIssues;
 
 /*
  *  Utils.
  */
 
-// FIXME: placeholder; for some reason 'temp' didn't work
-var tmpCount = 0;
-var tmpUniq = process.pid || Math.floor(Math.random() * 1e6);
-
+// Generate temporary filename, file will be autodeleted on exit unless
+// deleted explicitly.  See: https://www.npmjs.com/package/tmp
 function mkTempName(ext) {
-    return '/tmp/runtests-' + tmpUniq + '-' + (++tmpCount) + (ext !== undefined ? ext : '');
+    var fn = tmp.tmpNameSync({ keep: false, prefix: 'tmp-runtests-', postfix: (typeof ext === 'undefined' ? '' : '' + ext) });
+    //console.log('mkTempName -> ' + fn);
+    return fn;
 }
 
 function safeUnlinkSync(filePath) {
@@ -144,6 +145,14 @@ function executeTest(options, callback) {
     function execDone(error, stdout, stderr) {
         var res;
 
+        // Emduk outputs an extra '\x20\0a' to end of stdout, strip it
+        if (optEmdukTrailingLineHack &&
+            typeof stdout === 'string' &&
+            stdout.length >= 2 &&
+            stdout.substring(stdout.length - 2) === ' \n') {
+            stdout = stdout.substring(0, stdout.length - 2);
+        }
+
         res = {
             testcase: options.testcase,
             engine: options.engine,
@@ -217,7 +226,7 @@ function executeTest(options, callback) {
         } else {
             cmd.push(options.engine.fullPath);
             if (!options.valgrind && options.engine.name === 'duk') {
-                cmd.push('--restrict-memory');  // restricted memory
+                // cmd.push('--restrict-memory');  // restricted memory
             }
             // cmd.push('--alloc-logging');
             // cmd.push('--alloc-torture');
@@ -467,6 +476,7 @@ function testRunnerMain() {
         .boolean('verbose')
         .boolean('report-diff-to-other')
         .boolean('valgrind')
+        .boolean('emduk-trailing-line-hack')
         .describe('num-threads', 'number of threads to use for testcase execution')
         .describe('test-sleep', 'sleep time (milliseconds) between testcases, avoid overheating :)')
         .describe('run-duk', 'run testcase with Duktape')
@@ -481,11 +491,12 @@ function testRunnerMain() {
         .describe('report-diff-to-other', 'report diff to other engines')
         .describe('valgrind', 'run duktape testcase with valgrind (no effect on other engines)')
         .describe('prep-test-path', 'path for test_prep.py')
-        .describe('util-include-path', 'path for util-*.js files (ecmascript-testcases usually)')
+        .describe('util-include-path', 'path for util-*.js files (tests/ecmascript usually)')
         .describe('minify-closure', 'path for closure compiler.jar')
         .describe('minify-uglifyjs', 'path for UglifyJS executable')
         .describe('minify-uglifyjs2', 'path for UglifyJS2 executable')
         .describe('known-issues', 'known issues yaml file')
+        .describe('emduk-trailing-line-hack', 'strip bogus newline from end of emduk stdout')
         .demand('prep-test-path')
         .demand('util-include-path')
         .demand(1)   // at least 1 non-arg
@@ -516,6 +527,12 @@ function testRunnerMain() {
         testcases.forEach(function test(fullPath) {
             var filename = path.basename(fullPath);
             var testcase = parseTestCaseSync(fullPath);
+
+            if (testcase.meta.skip) {
+                // console.log('skip testcase: ' + testcase.name);
+                return;
+            }
+
             addKnownIssueMetadata(testcase);
 
             results[testcase.name] = {};  // create in test case order
@@ -690,7 +707,7 @@ function testRunnerMain() {
 
         console.log('');
         console.log('SUMMARY: ' + countPass + ' pass, ' + countFail +
-                    ' fail, ' + countSkip + ' skip');
+                    ' fail');  // countSkip is no longer correct
     }
 
     function createLogFile(logFile) {
@@ -751,6 +768,10 @@ function testRunnerMain() {
 
     if (argv['known-issues']) {
         knownIssues = yaml.load(argv['known-issues']);
+    }
+
+    if (argv['emduk-trailing-line-hack']) {
+        optEmdukTrailingLineHack = true;
     }
 
     engines = [];
